@@ -43,3 +43,6 @@ oauth_token.json
 
 # Migration output
 migration_output.json
+
+# Real client source data staged for migration -- never commit
+scripts/migrate-legacy/data/

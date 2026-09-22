@@ -2,11 +2,13 @@
 
 import logging
 import os
+import uuid
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Load .env before anything reads os.getenv() -- must happen before the
 # routers/services below are imported, since some read env vars at
@@ -82,3 +84,36 @@ app.include_router(discovery.router)
 app.include_router(import_router.router)
 app.include_router(chat.router)
 app.include_router(operations.router)
+
+
+# ---------------------------------------------------------------------------
+# Global exception handler -- an unhandled exception must NEVER leak its raw
+# message (stack trace, DB error, file path, connection string, etc.) to the
+# client. FastAPI/Starlette's own default already avoids this in production,
+# but we make it an explicit, guaranteed contract rather than relying on that
+# implicit default: every unhandled exception is logged in full server-side
+# with a correlation id, and the client only ever sees a generic message plus
+# that id (for support/debugging), never the exception's actual text.
+#
+# Deliberately-raised HTTPException calls elsewhere in the app (e.g.
+# `raise HTTPException(401, "Not authenticated")`) are unaffected by this --
+# FastAPI handles those separately, before they'd ever reach here, and their
+# `detail` strings are hand-written to already be safe to show a user.
+# ---------------------------------------------------------------------------
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    request_id = str(uuid.uuid4())
+    logger.exception(
+        "Unhandled exception on %s %s [request_id=%s]",
+        request.method,
+        request.url.path,
+        request_id,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Something went wrong on our end. Please try again.",
+            "request_id": request_id,
+        },
+    )

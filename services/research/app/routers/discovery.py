@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from ..models.enums import (
     CompanyStatus,
@@ -39,9 +39,10 @@ from ..models.schemas import (
     VerifyLocationRequest,
     VerifyLocationResponse,
 )
+from ..services.auth import require_auth
 from ..services.sheets_instance import sheets_adapter
 
-router = APIRouter(tags=["discovery"])
+router = APIRouter(tags=["discovery"], dependencies=[Depends(require_auth)])
 
 logger = logging.getLogger(__name__)
 

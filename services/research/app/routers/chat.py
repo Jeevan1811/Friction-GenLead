@@ -1,12 +1,15 @@
 """Chat router for the Llama-powered assistant."""
 
 from pydantic import BaseModel
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
+from app.services.auth import require_auth
 from app.services.llm import LLMService
 
-router = APIRouter(prefix="/internal/chat", tags=["chat"])
+router = APIRouter(
+    prefix="/internal/chat", tags=["chat"], dependencies=[Depends(require_auth)]
+)
 
 llm = LLMService()
 

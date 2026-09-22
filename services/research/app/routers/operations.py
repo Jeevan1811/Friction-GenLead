@@ -1,11 +1,14 @@
 """Operations router -- Jev pipeline endpoints."""
 
 from pydantic import BaseModel, field_validator
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from app.services.auth import require_auth
 from app.services.jev import Jev
 
-router = APIRouter(prefix="/internal/ops", tags=["operations"])
+router = APIRouter(
+    prefix="/internal/ops", tags=["operations"], dependencies=[Depends(require_auth)]
+)
 
 jev = Jev()
 

@@ -1,7 +1,8 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { Search, Bell } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { Search, Bell, LogOut } from "lucide-react";
+import { Dropdown } from "@/components/ui/dropdown";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -19,7 +20,17 @@ interface HeaderProps {
 
 export function Header({ onOpenCommandPalette }: HeaderProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const title = pageTitles[pathname] ?? "Friction GenLead";
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      router.push("/login");
+      router.refresh();
+    }
+  };
 
   return (
     <header
@@ -138,36 +149,42 @@ export function Header({ onOpenCommandPalette }: HeaderProps) {
           />
         </button>
 
-        {/* User avatar */}
-        <button
-          aria-label="User menu"
-          style={{
-            width: 32,
-            height: 32,
-            minHeight: 32,
-            minWidth: 32,
-            borderRadius: "50%",
-            border: "2px solid var(--color-border)",
-            background: "var(--color-accent-light)",
-            color: "var(--color-accent)",
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "12px",
-            fontWeight: 600,
-            fontFamily: "var(--font-sans)",
-            transition: "border-color var(--transition-fast)",
-          }}
-          onMouseEnter={(e) =>
-            (e.currentTarget.style.borderColor = "var(--color-accent)")
+        {/* User avatar + menu */}
+        <Dropdown
+          trigger={
+            <div
+              aria-label="User menu"
+              style={{
+                width: 32,
+                height: 32,
+                minHeight: 32,
+                minWidth: 32,
+                borderRadius: "50%",
+                border: "2px solid var(--color-border)",
+                background: "var(--color-accent-light)",
+                color: "var(--color-accent)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "12px",
+                fontWeight: 600,
+                fontFamily: "var(--font-sans)",
+                transition: "border-color var(--transition-fast)",
+              }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.borderColor = "var(--color-accent)")
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.borderColor = "var(--color-border)")
+              }
+            >
+              JK
+            </div>
           }
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.borderColor = "var(--color-border)")
-          }
-        >
-          JK
-        </button>
+          items={[
+            { label: "Log out", icon: LogOut, onClick: handleLogout, destructive: true },
+          ]}
+        />
       </div>
     </header>
   );

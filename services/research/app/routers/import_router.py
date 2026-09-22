@@ -25,15 +25,18 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 from ..models.enums import CompanyStatus, SyncState
+from ..services.auth import require_auth
 from ..services.resolver import EntityResolver, ResolutionReport
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/internal/import", tags=["import"])
+router = APIRouter(
+    prefix="/internal/import", tags=["import"], dependencies=[Depends(require_auth)]
+)
 
 # ---------------------------------------------------------------------------
 # In-memory job store (production would use Redis or a database)

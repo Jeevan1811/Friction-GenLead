@@ -16,8 +16,8 @@ interface StatsCardProps {
 
 export function StatsCard({ label, value, change, trend, icon: Icon, className }: StatsCardProps) {
   const [displayed, setDisplayed] = useState(0);
-  const rafRef = useRef<number>();
-  const startRef = useRef<number>();
+  const rafRef = useRef<number | undefined>(undefined);
+  const startRef = useRef<number | undefined>(undefined);
 
   /* Animate the number counting up on mount */
   useEffect(() => {

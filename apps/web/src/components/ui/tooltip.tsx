@@ -14,7 +14,7 @@ interface TooltipProps {
 
 export function Tooltip({ content, children, position = "top", className }: TooltipProps) {
   const [visible, setVisible] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const triggerRef = useRef<HTMLSpanElement>(null);
 
   const show = () => {

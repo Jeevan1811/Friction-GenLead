@@ -9,9 +9,13 @@ import {
   Building2,
   Users,
   Check,
+  Loader2,
 } from "lucide-react";
 import { searchRuns } from "@/lib/fixtures";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { ResearchProgress } from "@/components/shared/research-progress";
+import { useToast } from "@/components/ui/toast";
+import { startResearch } from "@/lib/api";
 
 const INDUSTRIES = [
   "Mining",
@@ -55,6 +59,10 @@ export default function SearchPage() {
   const [industry, setIndustry] = useState("");
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [postcodeError, setPostcodeError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [researchPostcode, setResearchPostcode] = useState("");
+  const { toast } = useToast();
 
   const toggleRole = (role: string) => {
     setSelectedRoles((prev) =>
@@ -364,12 +372,39 @@ export default function SearchPage() {
 
         {/* Submit */}
         <button
-          disabled={!canSubmit}
+          disabled={!canSubmit || submitting}
           className="btn-primary"
           style={{ width: "100%" }}
+          onClick={async () => {
+            if (!canSubmit || submitting) return;
+            setSubmitting(true);
+            try {
+              const res = await startResearch(
+                postcode,
+                industry || undefined,
+                selectedRoles
+              );
+              toast(`Research started for postcode ${postcode}`, "success");
+              setResearchPostcode(postcode);
+              setActiveJobId(res.job_id);
+            } catch (err) {
+              const msg =
+                err instanceof Error ? err.message : "Failed to start research";
+              toast(msg, "error");
+            } finally {
+              setSubmitting(false);
+            }
+          }}
         >
-          <Zap size={16} />
-          Start Research
+          {submitting ? (
+            <Loader2
+              size={16}
+              style={{ animation: "spin 1s linear infinite" }}
+            />
+          ) : (
+            <Zap size={16} />
+          )}
+          {submitting ? "Starting..." : "Start Research"}
         </button>
         {!canSubmit && postcode.length > 0 && selectedRoles.length === 0 && (
           <p
@@ -384,6 +419,19 @@ export default function SearchPage() {
           </p>
         )}
       </div>
+
+      {/* Active research progress */}
+      {activeJobId && (
+        <ResearchProgress
+          jobId={activeJobId}
+          onComplete={(data) => {
+            toast(
+              `Research complete: ${data.companies_found} companies, ${data.contacts_found} contacts found`,
+              "success"
+            );
+          }}
+        />
+      )}
 
       {/* Recent searches */}
       <div>

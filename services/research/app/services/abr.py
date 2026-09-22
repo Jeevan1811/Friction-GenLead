@@ -160,6 +160,107 @@ class ABRAdapter:
 
         return entity
 
+    async def search_by_postcode(self, postcode: str) -> list[dict]:
+        """Search ABR for businesses registered in a given postcode.
+
+        Returns a list of dicts with name, abn, industry, website, etc.
+        Currently returns mock QLD industrial companies; will be replaced
+        with real ABR API calls.
+        """
+        clean = "".join(c for c in postcode if c.isdigit())
+        if len(clean) != 4:
+            return []
+
+        # Mock data keyed by postcode — realistic QLD industrial companies
+        _POSTCODE_COMPANIES: dict[str, list[dict]] = {
+            "4000": [
+                {
+                    "name": "CS Energy Ltd",
+                    "abn": "54078848745",
+                    "industry": "Energy / Power Generation",
+                    "website": "https://www.csenergy.com.au",
+                    "postcode": "4000",
+                    "state": "QLD",
+                },
+                {
+                    "name": "Stanwell Corporation Limited",
+                    "abn": "37078848674",
+                    "industry": "Energy / Power Generation",
+                    "website": "https://www.stanwell.com",
+                    "postcode": "4000",
+                    "state": "QLD",
+                },
+                {
+                    "name": "Brisbane Industrial Services Pty Ltd",
+                    "abn": "11111111111",
+                    "industry": "Heavy Industry / Manufacturing",
+                    "website": "https://www.brisindustrial.com.au",
+                    "postcode": "4000",
+                    "state": "QLD",
+                },
+            ],
+            "4740": [
+                {
+                    "name": "Dalrymple Bay Infrastructure Pty Ltd",
+                    "abn": "22222222222",
+                    "industry": "Mining / Coal Terminal",
+                    "website": "https://www.dbinfrastructure.com.au",
+                    "postcode": "4740",
+                    "state": "QLD",
+                },
+                {
+                    "name": "Mackay Sugar Limited",
+                    "abn": "33333333333",
+                    "industry": "Heavy Industry / Sugar Processing",
+                    "website": "https://www.mackaysugar.com.au",
+                    "postcode": "4740",
+                    "state": "QLD",
+                },
+            ],
+            "4810": [
+                {
+                    "name": "Port of Townsville Limited",
+                    "abn": "44444444444",
+                    "industry": "Transport / Logistics",
+                    "website": "https://www.townsville-port.com.au",
+                    "postcode": "4810",
+                    "state": "QLD",
+                },
+            ],
+            "4811": [
+                {
+                    "name": "Sun Metals Corporation Pty Ltd",
+                    "abn": "19074758014",
+                    "industry": "Mining / Zinc Refining",
+                    "website": "https://www.sunmetals.com.au",
+                    "postcode": "4811",
+                    "state": "QLD",
+                },
+            ],
+            "4870": [
+                {
+                    "name": "Cairns Regional Quarries Pty Ltd",
+                    "abn": "55555555555",
+                    "industry": "Mining / Quarry",
+                    "website": "https://www.cairnsquarries.com.au",
+                    "postcode": "4870",
+                    "state": "QLD",
+                },
+                {
+                    "name": "FNQ Power Services Pty Ltd",
+                    "abn": "66666666666",
+                    "industry": "Energy / Electrical Contracting",
+                    "website": "https://www.fnqpower.com.au",
+                    "postcode": "4870",
+                    "state": "QLD",
+                },
+            ],
+        }
+
+        results = _POSTCODE_COMPANIES.get(clean, [])
+        logger.info("ABR postcode search '%s': %d result(s)", postcode, len(results))
+        return results
+
     async def search_name(self, name: str) -> ABRSearchResult:
         """Search ABR by business or entity name.
 

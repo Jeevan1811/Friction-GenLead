@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { CommandPalette } from "@/components/shared/command-palette";
+import { ChatSidebar } from "@/components/shared/chat-sidebar";
 import { ToastProvider } from "@/components/ui/toast";
 
 export default function DashboardLayout({
@@ -71,6 +72,7 @@ export default function DashboardLayout({
           </main>
           <MobileNav />
           <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
+          <ChatSidebar />
         </div>
       </ToastProvider>
     );
@@ -108,6 +110,7 @@ export default function DashboardLayout({
           </main>
         </div>
         <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
+        <ChatSidebar />
       </div>
     </ToastProvider>
   );

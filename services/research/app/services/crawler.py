@@ -76,6 +76,16 @@ class CrawlLimitError(Exception):
 
 
 @dataclass
+class ExtractedContact:
+    """A contact extracted from a crawled web page."""
+    name: str
+    role: str
+    email: str
+    phone: str
+    source_url: str
+
+
+@dataclass
 class CrawlResult:
     url: str
     status_code: int
@@ -244,6 +254,42 @@ class WebsiteCrawler:
             body=body,
             elapsed_ms=round(elapsed, 1),
         )
+
+    async def crawl_website(self, url: str) -> CrawlResult:
+        """Fetch a website's main page for contact extraction.
+
+        Convenience wrapper around :meth:`fetch` that Jev uses in the
+        contact-research step.  Returns a :class:`CrawlResult` whose
+        ``body`` contains the page HTML.
+        """
+        return await self.fetch(url)
+
+    async def extract_contacts(self, html: str) -> list["ExtractedContact"]:
+        """Extract contacts from raw HTML.
+
+        Looks for common patterns: mailto links, "Contact Us" sections,
+        team/about pages.  Returns a list of :class:`ExtractedContact`
+        objects.  Currently a stub that returns mock contacts; will be
+        replaced with real HTML parsing.
+        """
+        contacts: list[ExtractedContact] = []
+
+        # Simple mailto extraction (real implementation)
+        import re
+        mailto_pattern = re.compile(r'mailto:([^"\'?\s]+)', re.IGNORECASE)
+        emails_found = set(mailto_pattern.findall(html))
+
+        for email in emails_found:
+            contacts.append(ExtractedContact(
+                name="",
+                role="",
+                email=email.strip(),
+                phone="",
+                source_url="",
+            ))
+
+        # If no emails found via mailto, return empty (no fabrication)
+        return contacts
 
     async def crawl_site(self, base_url: str, max_pages: int | None = None) -> list[CrawlResult]:
         """Crawl multiple pages from a site starting at base_url.

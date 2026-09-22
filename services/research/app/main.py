@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routers import discovery, health, import_router
+from .routers import chat, discovery, health, import_router, operations
 
 app = FastAPI(
     title="Friction GenLead Research API",
@@ -31,3 +31,5 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(discovery.router)
 app.include_router(import_router.router)
+app.include_router(chat.router)
+app.include_router(operations.router)

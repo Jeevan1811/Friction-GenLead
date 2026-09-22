@@ -418,6 +418,43 @@ class EntityResolver:
     _conflicts: list[ConflictEntry] = field(default_factory=list)
     _report: ResolutionReport = field(default_factory=ResolutionReport)
 
+    def resolve_companies(
+        self,
+        companies: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Deduplicate a list of {name, abn} dicts using ABN and name matching.
+
+        This is a lightweight wrapper around :meth:`resolve` designed for the
+        Jev pipeline's discovery step.  It converts the simplified input format
+        into the full record format that ``resolve()`` expects, runs
+        deduplication, and returns the merged list plus a duplicate count.
+
+        Parameters
+        ----------
+        companies:
+            List of dicts, each with at least ``"name"`` and optionally ``"abn"``.
+
+        Returns
+        -------
+        dict with keys:
+            ``"merged"`` -- the deduplicated list of company dicts.
+            ``"duplicates_merged"`` -- number of duplicates that were merged.
+        """
+        records = [
+            {
+                "company_name": c.get("name", ""),
+                "abn": c.get("abn", ""),
+            }
+            for c in companies
+        ]
+
+        merged, _conflicts, report = self.resolve(records)
+
+        return {
+            "merged": merged,
+            "duplicates_merged": report.merged_by_abn + report.merged_by_name,
+        }
+
     def resolve(
         self,
         records: list[dict[str, Any]],

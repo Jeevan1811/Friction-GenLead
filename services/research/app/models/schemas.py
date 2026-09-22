@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -124,11 +125,17 @@ class DiscoveryResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 class VerifyCompanyRequest(BaseModel):
-    company_id: UUID
+    model_config = {"populate_by_name": True}
+
+    company_id: str = Field(alias="companyId")
+    abn: str | None = None
+    company_name: str | None = Field(default=None, alias="companyName")
+    action: Literal["approve", "reject"] | None = None
+    reason: str | None = None
 
 
 class VerifyCompanyResponse(BaseModel):
-    company_id: UUID
+    company_id: str
     status: CompanyStatus
     abn_valid: bool | None = None
     website_reachable: bool | None = None

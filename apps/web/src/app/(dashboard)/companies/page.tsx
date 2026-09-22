@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Search, ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react";
+import { Search, ChevronDown, ChevronUp, ArrowUpDown, Loader2 } from "lucide-react";
 import {
-  companies,
+  companies as initialCompanies,
   locations,
   contacts,
   getBestContact,
@@ -13,6 +13,9 @@ import {
 } from "@/lib/fixtures";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DetailDrawer } from "@/components/shared/detail-drawer";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
+import { verifyCompany } from "@/lib/api";
 
 type Tab = "all" | "new" | "review" | "approved" | "stale" | "no-contact" | "rejected";
 
@@ -38,6 +41,11 @@ export default function CompaniesPage() {
   const [sortKey, setSortKey] = useState<SortKey>("companyName");
   const [sortAsc, setSortAsc] = useState(true);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [companies, setCompanies] = useState<Company[]>(initialCompanies);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const { toast } = useToast();
 
   const tabDef = tabs.find((t) => t.key === activeTab)!;
 
@@ -64,7 +72,7 @@ export default function CompaniesPage() {
       return sortAsc ? cmp : -cmp;
     });
     return result;
-  }, [activeTab, searchQuery, sortKey, sortAsc, tabDef]);
+  }, [activeTab, searchQuery, sortKey, sortAsc, tabDef, companies]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
@@ -475,12 +483,59 @@ export default function CompaniesPage() {
             {/* Actions */}
             <div style={{ display: "flex", gap: "8px" }}>
               {selectedCompany.status !== "APPROVED" && (
-                <button className="btn-primary" style={{ flex: 1 }}>
+                <button
+                  className="btn-primary"
+                  style={{ flex: 1 }}
+                  disabled={actionLoading}
+                  onClick={async () => {
+                    setActionLoading(true);
+                    try {
+                      await verifyCompany(
+                        {
+                          companyId: selectedCompany.companyId,
+                          abn: selectedCompany.abn,
+                          companyName: selectedCompany.companyName,
+                        },
+                        "approve"
+                      );
+                      setCompanies((prev) =>
+                        prev.map((c) =>
+                          c.companyId === selectedCompany.companyId
+                            ? { ...c, status: "APPROVED", lastVerified: new Date().toISOString() }
+                            : c
+                        )
+                      );
+                      toast("Company approved", "success");
+                    } catch (err) {
+                      const msg =
+                        err instanceof Error
+                          ? err.message
+                          : "Failed to approve company";
+                      toast(msg, "error");
+                    } finally {
+                      setActionLoading(false);
+                    }
+                  }}
+                >
+                  {actionLoading ? (
+                    <Loader2
+                      size={14}
+                      style={{ animation: "spin 1s linear infinite" }}
+                    />
+                  ) : null}
                   Approve
                 </button>
               )}
               {selectedCompany.status !== "REJECTED" && (
-                <button className="btn-secondary" style={{ flex: 1 }}>
+                <button
+                  className="btn-secondary"
+                  style={{ flex: 1 }}
+                  disabled={actionLoading}
+                  onClick={() => {
+                    setRejectReason("");
+                    setRejectDialogOpen(true);
+                  }}
+                >
                   Reject
                 </button>
               )}
@@ -488,6 +543,49 @@ export default function CompaniesPage() {
           </div>
         )}
       </DetailDrawer>
+
+      {/* Reject confirmation dialog */}
+      <ConfirmDialog
+        open={rejectDialogOpen}
+        title="Reject Company"
+        description="Are you sure you want to reject this company? Please provide a reason."
+        confirmLabel="Reject"
+        cancelLabel="Cancel"
+        destructive
+        onCancel={() => setRejectDialogOpen(false)}
+        onConfirm={async () => {
+          if (!selectedCompany) return;
+          setRejectDialogOpen(false);
+          setActionLoading(true);
+          try {
+            await verifyCompany(
+              {
+                companyId: selectedCompany.companyId,
+                abn: selectedCompany.abn,
+                companyName: selectedCompany.companyName,
+              },
+              "reject",
+              rejectReason || "Rejected by user"
+            );
+            setCompanies((prev) =>
+              prev.map((c) =>
+                c.companyId === selectedCompany.companyId
+                  ? { ...c, status: "REJECTED" }
+                  : c
+              )
+            );
+            toast("Company rejected", "success");
+          } catch (err) {
+            const msg =
+              err instanceof Error
+                ? err.message
+                : "Failed to reject company";
+            toast(msg, "error");
+          } finally {
+            setActionLoading(false);
+          }
+        }}
+      />
     </div>
   );
 }

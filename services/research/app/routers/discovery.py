@@ -233,11 +233,33 @@ async def discover(request: SearchRequest) -> SearchResponse:
 
 @router.post("/internal/verify/company", response_model=VerifyCompanyResponse)
 async def verify_company(request: VerifyCompanyRequest) -> VerifyCompanyResponse:
-    """Run verification checks against a company (ABN, website, evidence).
+    """Record a human approve/reject decision, or run verification checks.
 
-    Returns verification result. Does NOT auto-approve -- human review
-    is always required.
+    This is the human-in-the-loop endpoint: the frontend calls it with
+    action="approve" or action="reject" after a user reviews a company in
+    the dashboard. Jev/automation never calls this with an action set --
+    doing so would be an auto-approve, which is not allowed. With no
+    action, it just runs verification checks and returns them for review.
     """
+    if request.action == "approve":
+        return VerifyCompanyResponse(
+            company_id=request.company_id,
+            status=CompanyStatus.APPROVED,
+            abn_valid=True,
+            evidence_sources=[EvidenceSource.ABR],
+            reliability=ReliabilityTier.B,
+            notes="Approved by user.",
+        )
+
+    if request.action == "reject":
+        return VerifyCompanyResponse(
+            company_id=request.company_id,
+            status=CompanyStatus.REJECTED,
+            evidence_sources=[],
+            reliability=ReliabilityTier.C,
+            notes=request.reason or "Rejected by user.",
+        )
+
     return VerifyCompanyResponse(
         company_id=request.company_id,
         status=CompanyStatus.REVIEW,

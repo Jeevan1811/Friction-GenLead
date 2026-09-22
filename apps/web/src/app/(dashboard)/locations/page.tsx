@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { MapPin, LayoutGrid, List, Search } from "lucide-react";
+import { LayoutGrid, List, Search } from "lucide-react";
 import { locations, companies } from "@/lib/fixtures";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { GlobeView } from "@/components/shared/globe-view";
 
 type ViewMode = "list" | "grid";
 
@@ -45,25 +46,8 @@ export default function LocationsPage() {
         </p>
       </div>
 
-      {/* Map placeholder */}
-      <div
-        className="surface-card"
-        style={{
-          padding: "48px 24px",
-          textAlign: "center",
-          marginBottom: "24px",
-          background: "var(--color-bg)",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          gap: "12px",
-        }}
-      >
-        <MapPin size={32} style={{ color: "var(--color-text-muted)" }} />
-        <p style={{ fontSize: "13px", color: "var(--color-text-muted)" }}>
-          Map view coming soon
-        </p>
-      </div>
+      {/* Globe map view */}
+      <GlobeView locations={filtered} />
 
       {/* Toolbar */}
       <div

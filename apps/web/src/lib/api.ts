@@ -60,10 +60,53 @@ export async function verifyCompany(
   action: "approve" | "reject",
   reason?: string
 ) {
-  return apiPost<{ status: string; message: string }>(
-    "/internal/verify/company",
-    { ...companyData, action, reason: reason || null }
-  );
+  return apiPost<{
+    company_id: string;
+    status: string;
+    abn_valid?: boolean | null;
+    website_reachable?: boolean | null;
+    evidence_sources: string[];
+    reliability: string;
+    notes?: string | null;
+    // Honest reflection of whether this decision actually persisted to
+    // the Google Sheet: "SYNCED" | "PENDING" | "NEVER" (never faked).
+    sync_status: string;
+  }>("/internal/verify/company", { ...companyData, action, reason: reason || null });
+}
+
+export async function verifyLocation(
+  locationData: Record<string, unknown>,
+  action: "approve" | "reject",
+  reason?: string
+) {
+  return apiPost<{
+    location_id: string;
+    company_id?: string | null;
+    status: string;
+    site_evidence?: string | null;
+    address_confirmed?: boolean | null;
+    evidence_sources: string[];
+    notes?: string | null;
+    // Honest reflection of whether this decision actually persisted to
+    // the Google Sheet: "SYNCED" | "PENDING" | "NEVER" (never faked).
+    sync_status: string;
+  }>("/internal/verify/location", { ...locationData, action, reason: reason || null });
+}
+
+export async function verifyContact(
+  contactData: Record<string, unknown>,
+  action: "approve" | "reject",
+  reason?: string
+) {
+  return apiPost<{
+    contact_id: string;
+    company_id?: string | null;
+    status: string;
+    notes?: string | null;
+    // Honest reflection of whether this decision actually persisted to
+    // the Google Sheet: "SYNCED" | "PENDING" | "NEVER" (never faked).
+    sync_status: string;
+  }>("/internal/verify/contact", { ...contactData, action, reason: reason || null });
 }
 
 export async function sendChatMessage(

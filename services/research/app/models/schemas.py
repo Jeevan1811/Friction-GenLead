@@ -142,6 +142,13 @@ class VerifyCompanyResponse(BaseModel):
     evidence_sources: list[EvidenceSource] = Field(default_factory=list)
     reliability: ReliabilityTier = ReliabilityTier.C
     notes: str | None = None
+    # Honest reflection of whether this decision actually persisted to the
+    # Google Sheet. Only set meaningfully on action="approve"/"reject" --
+    # a plain verification-check call (no action) never attempts a sheet
+    # write, so it stays "NEVER". A write attempt sets "SYNCED" only on
+    # confirmed success; every failure/mock-mode/misconfiguration path
+    # sets "PENDING", never "SYNCED" (see CLAUDE.md write-failure policy).
+    sync_status: str = "PENDING"
 
 
 # ---------------------------------------------------------------------------
@@ -149,17 +156,70 @@ class VerifyCompanyResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class VerifyLocationRequest(BaseModel):
-    location_id: UUID
+    model_config = {"populate_by_name": True}
+
+    # String, not UUID -- mirrors VerifyCompanyRequest.company_id. Real
+    # frontend location ids (e.g. fixture ids like "loc-001") are not
+    # UUIDs, so typing this as UUID would reject every real request.
+    location_id: str = Field(alias="locationId")
+    company_id: str | None = Field(default=None, alias="companyId")
+    site_name: str | None = Field(default=None, alias="siteName")
+    location_type: str | None = Field(default=None, alias="locationType")
+    address: str | None = None
+    suburb: str | None = None
+    state: str | None = None
+    postcode: str | None = None
+    action: Literal["approve", "reject"] | None = None
+    reason: str | None = None
 
 
 class VerifyLocationResponse(BaseModel):
-    location_id: UUID
-    company_id: UUID
+    location_id: str
+    company_id: str | None = None
     status: LocationStatus
-    site_evidence: SiteEvidence
+    site_evidence: SiteEvidence = SiteEvidence.UNCERTAIN
     address_confirmed: bool = False
     evidence_sources: list[EvidenceSource] = Field(default_factory=list)
     notes: str | None = None
+    # Honest reflection of whether this decision actually persisted to the
+    # Google Sheet. Only set meaningfully on action="approve"/"reject" --
+    # a plain verification-check call (no action) never attempts a sheet
+    # write, so it stays "NEVER". A write attempt sets "SYNCED" only on
+    # confirmed success; every failure/mock-mode/misconfiguration path
+    # sets "PENDING", never "SYNCED" (see CLAUDE.md write-failure policy).
+    sync_status: str = "PENDING"
+
+
+# ---------------------------------------------------------------------------
+# Verify contact
+# ---------------------------------------------------------------------------
+
+class VerifyContactRequest(BaseModel):
+    model_config = {"populate_by_name": True}
+
+    contact_id: str = Field(alias="contactId")
+    company_id: str | None = Field(default=None, alias="companyId")
+    location_id: str | None = Field(default=None, alias="locationId")
+    name: str | None = None
+    position: str | None = None
+    business_email: str | None = Field(default=None, alias="businessEmail")
+    mobile: str | None = None
+    action: Literal["approve", "reject"] | None = None
+    reason: str | None = None
+
+
+class VerifyContactResponse(BaseModel):
+    contact_id: str
+    company_id: str | None = None
+    status: ContactStatus
+    notes: str | None = None
+    # Honest reflection of whether this decision actually persisted to the
+    # Google Sheet. Only set meaningfully on action="approve"/"reject" --
+    # a plain verification-check call (no action) never attempts a sheet
+    # write, so it stays "NEVER". A write attempt sets "SYNCED" only on
+    # confirmed success; every failure/mock-mode/misconfiguration path
+    # sets "PENDING", never "SYNCED" (see CLAUDE.md write-failure policy).
+    sync_status: str = "PENDING"
 
 
 # ---------------------------------------------------------------------------

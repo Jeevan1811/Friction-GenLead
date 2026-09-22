@@ -113,6 +113,8 @@ class GoogleSheetsAdapter:
 
     spreadsheet_id: str | None = None
     credentials_path: str | None = None
+    oauth_client_secret_path: str | None = None
+    oauth_token_path: str | None = None
     _connected: bool = False
     _mock_mode: bool = True
     _service: Any = None  # google-api-python-client service object
@@ -149,12 +151,29 @@ class GoogleSheetsAdapter:
         self,
         spreadsheet_id: str | None = None,
         credentials_path: str | None = None,
+        oauth_client_secret_path: str | None = None,
+        oauth_token_path: str | None = None,
     ) -> None:
         """Authenticate and bind to a specific Google Sheet.
 
-        If ``credentials_path`` is provided, attempts to load a service
-        account JSON key and authenticate against the Google Sheets API.
-        Otherwise falls back to mock mode.
+        Two auth paths are supported, tried in this order:
+
+        1. Service account -- if ``credentials_path`` is provided, loads a
+           service account JSON key and authenticates against the Google
+           Sheets API (unchanged, existing behavior).
+        2. OAuth2 user credentials -- if ``oauth_token_path`` is provided
+           and the token file exists, loads (and refreshes, if needed) a
+           previously-generated user OAuth token. This path exists for
+           accounts where Google Cloud org policy blocks service-account
+           key creation (``iam.disableServiceAccountKeyCreation``). The
+           token itself is generated out-of-band by running
+           ``authorize_sheets.py`` once locally -- this method never
+           launches an interactive browser consent flow itself.
+
+        If neither path succeeds, falls back to mock mode. A broken or
+        missing credential of either kind degrades to mock mode with a
+        warning log -- it never raises and never silently pretends to be
+        connected.
 
         Parameters
         ----------
@@ -162,24 +181,54 @@ class GoogleSheetsAdapter:
             The Google Sheet ID (from the URL).
         credentials_path:
             Path to a service-account JSON key file.
+        oauth_client_secret_path:
+            Path to an OAuth2 "Desktop app" client secret JSON file. Only
+            needed by the standalone ``authorize_sheets.py`` script to
+            generate the token; not required here once a token file exists.
+        oauth_token_path:
+            Path to a previously-generated OAuth2 user token JSON file
+            (as written by ``authorize_sheets.py``).
         """
         if spreadsheet_id:
             self.spreadsheet_id = spreadsheet_id
         if credentials_path:
             self.credentials_path = credentials_path
+        if oauth_client_secret_path:
+            self.oauth_client_secret_path = oauth_client_secret_path
+        if oauth_token_path:
+            self.oauth_token_path = oauth_token_path
 
         if self.credentials_path:
             try:
                 self._service = self._build_service(self.credentials_path)
                 self._mock_mode = False
                 logger.info(
-                    "Connected to Google Sheets (spreadsheet=%s) with real credentials.",
+                    "Connected to Google Sheets (spreadsheet=%s) with "
+                    "service-account credentials.",
                     self.spreadsheet_id,
                 )
             except Exception:
                 logger.warning(
-                    "Failed to authenticate with Google Sheets. "
-                    "Falling back to mock mode.",
+                    "Failed to authenticate with Google Sheets using a "
+                    "service account. Falling back to mock mode.",
+                    exc_info=True,
+                )
+                self._mock_mode = True
+        elif self.oauth_token_path:
+            try:
+                self._service = self._build_service_oauth(
+                    self.oauth_client_secret_path, self.oauth_token_path
+                )
+                self._mock_mode = False
+                logger.info(
+                    "Connected to Google Sheets (spreadsheet=%s) with "
+                    "OAuth2 user credentials.",
+                    self.spreadsheet_id,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to authenticate with Google Sheets using an "
+                    "OAuth2 user token. Falling back to mock mode.",
                     exc_info=True,
                 )
                 self._mock_mode = True
@@ -216,6 +265,53 @@ class GoogleSheetsAdapter:
                 "google-auth and google-api-python-client are required "
                 "for real Google Sheets integration.  Install them with:\n"
                 "  pip install google-auth google-api-python-client"
+            )
+
+    def _build_service_oauth(
+        self,
+        client_secret_path: str | None,
+        token_path: str,
+    ) -> Any:
+        """Build a Google Sheets API service from a saved OAuth2 user token.
+
+        This is the alternative to ``_build_service`` for accounts where
+        Google Cloud org policy blocks service-account key creation. It
+        loads (and refreshes, if expired) a token file previously written
+        by the standalone ``authorize_sheets.py`` script.
+
+        This method NEVER launches an interactive browser consent flow --
+        the backend is a server process with no browser attached to it.
+        If no valid token is on disk and it cannot be silently refreshed,
+        it raises so the caller (``connect()``) can fall back to mock mode.
+        """
+        try:
+            from google.oauth2.credentials import Credentials as UserCredentials
+            from google.auth.transport.requests import Request
+            from googleapiclient.discovery import build
+            import os
+
+            scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+            creds = None
+            if os.path.exists(token_path):
+                creds = UserCredentials.from_authorized_user_file(token_path, scopes)
+
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                else:
+                    raise RuntimeError(
+                        f"No valid OAuth token at {token_path}. Run "
+                        f"`python authorize_sheets.py` first to generate one."
+                    )
+                with open(token_path, "w") as f:
+                    f.write(creds.to_json())
+
+            return build("sheets", "v4", credentials=creds)
+        except ImportError:
+            raise ImportError(
+                "google-auth-oauthlib and google-auth-httplib2 are required "
+                "for OAuth2 Google Sheets integration.  Install them with:\n"
+                "  pip install google-auth-oauthlib google-auth-httplib2"
             )
 
     def _ensure_connected(self) -> None:

@@ -4,6 +4,8 @@ All endpoints return realistic QLD mock data while the real integrations
 (ABR, web crawling, etc.) are wired up.
 """
 
+import logging
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter
@@ -32,11 +34,16 @@ from ..models.schemas import (
     SearchResponse,
     VerifyCompanyRequest,
     VerifyCompanyResponse,
+    VerifyContactRequest,
+    VerifyContactResponse,
     VerifyLocationRequest,
     VerifyLocationResponse,
 )
+from ..services.sheets_instance import sheets_adapter
 
 router = APIRouter(tags=["discovery"])
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -241,23 +248,32 @@ async def verify_company(request: VerifyCompanyRequest) -> VerifyCompanyResponse
     doing so would be an auto-approve, which is not allowed. With no
     action, it just runs verification checks and returns them for review.
     """
-    if request.action == "approve":
-        return VerifyCompanyResponse(
-            company_id=request.company_id,
-            status=CompanyStatus.APPROVED,
-            abn_valid=True,
-            evidence_sources=[EvidenceSource.ABR],
-            reliability=ReliabilityTier.B,
-            notes="Approved by user.",
+    if request.action in ("approve", "reject"):
+        new_status = (
+            CompanyStatus.APPROVED
+            if request.action == "approve"
+            else CompanyStatus.REJECTED
         )
+        sync_status = await _persist_company_decision(request, new_status)
 
-    if request.action == "reject":
+        if request.action == "approve":
+            return VerifyCompanyResponse(
+                company_id=request.company_id,
+                status=new_status,
+                abn_valid=True,
+                evidence_sources=[EvidenceSource.ABR],
+                reliability=ReliabilityTier.B,
+                notes="Approved by user.",
+                sync_status=sync_status,
+            )
+
         return VerifyCompanyResponse(
             company_id=request.company_id,
-            status=CompanyStatus.REJECTED,
+            status=new_status,
             evidence_sources=[],
             reliability=ReliabilityTier.C,
             notes=request.reason or "Rejected by user.",
+            sync_status=sync_status,
         )
 
     return VerifyCompanyResponse(
@@ -268,7 +284,63 @@ async def verify_company(request: VerifyCompanyRequest) -> VerifyCompanyResponse
         evidence_sources=[EvidenceSource.ABR, EvidenceSource.OFFICIAL_WEBSITE],
         reliability=ReliabilityTier.B,
         notes="ABN matches ASIC records. Website confirmed active.",
+        # No sheet write is attempted for a plain verification check (no
+        # action) -- nothing to be "pending" or "synced" about.
+        sync_status=SyncState.NEVER.value,
     )
+
+
+async def _persist_company_decision(
+    request: VerifyCompanyRequest,
+    new_status: CompanyStatus,
+) -> str:
+    """Persist a human approve/reject decision to the Companies tab.
+
+    This is the ONLY place discovery.py writes to the sheet -- it fires
+    solely from an explicit human action (action="approve"/"reject" on
+    this endpoint), never from /internal/discover or the Jev pipeline.
+
+    Never raises: a sheet-write failure (mock mode, empty/garbage
+    spreadsheet id, transient API error, or anything else) must degrade
+    to an honest "PENDING" sync_status rather than crash the request or
+    falsely report "SYNCED" -- per the project's write-failure policy.
+
+    Note on mock mode: ``upsert_company`` itself returns SyncState.SYNCED
+    for a successful mock-mode write (that's its documented, correct
+    behavior -- the in-memory store did receive the write). But nothing
+    was actually persisted to a real, durable Google Sheet in that case,
+    so reporting "SYNCED" to the user would violate the "never fake
+    Synced" rule from a product perspective. We therefore also check
+    ``get_sync_status()["mode"]`` and only ever report "SYNCED" when the
+    adapter is connected to a real ("live") spreadsheet.
+    """
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        row = {
+            "company_id": request.company_id,
+            "abn": request.abn or "",
+            "company_name": request.company_name or "",
+            "status": new_status.value,
+            "last_modified": now,
+            "last_verified": now,
+            "notes": request.reason or "",
+        }
+        result = await sheets_adapter.upsert_company(row)
+        status_info = await sheets_adapter.get_sync_status()
+        if status_info.get("mode") != "live":
+            # Not actually connected to a real spreadsheet (mock mode).
+            # The mock write "succeeded" in-memory, but nothing durable
+            # happened -- honestly report PENDING, never SYNCED.
+            return SyncState.PENDING.value
+        return result.value
+    except Exception:
+        logger.exception(
+            "Sheet write failed for company %s decision %s; "
+            "reporting sync_status=PENDING.",
+            request.company_id,
+            new_status,
+        )
+        return SyncState.PENDING.value
 
 
 # ---------------------------------------------------------------------------
@@ -277,14 +349,51 @@ async def verify_company(request: VerifyCompanyRequest) -> VerifyCompanyResponse
 
 @router.post("/internal/verify/location", response_model=VerifyLocationResponse)
 async def verify_location(request: VerifyLocationRequest) -> VerifyLocationResponse:
-    """Verify that a location is a genuine operating site.
+    """Verify a location, or record a human approve/reject decision.
 
-    ABN registration address != operating site. This endpoint confirms
-    the physical presence using multiple evidence sources.
+    ABN registration address != operating site. With no action, this
+    confirms physical presence using multiple evidence sources (mock).
+
+    This is also the human-in-the-loop endpoint for locations, mirroring
+    ``verify_company``: the frontend calls it with action="approve" or
+    action="reject" after a user reviews a location card in the
+    dashboard. Jev/automation never calls this with an action set --
+    doing so would be an auto-approve, which is not allowed.
     """
+    if request.action in ("approve", "reject"):
+        new_status = (
+            LocationStatus.VERIFIED
+            if request.action == "approve"
+            else LocationStatus.DISPUTED
+        )
+        sync_status = await _persist_location_decision(request, new_status)
+
+        if request.action == "approve":
+            return VerifyLocationResponse(
+                location_id=request.location_id,
+                company_id=request.company_id,
+                status=new_status,
+                site_evidence=SiteEvidence.CONFIRMED,
+                address_confirmed=True,
+                evidence_sources=[EvidenceSource.USER],
+                notes="Approved by user.",
+                sync_status=sync_status,
+            )
+
+        return VerifyLocationResponse(
+            location_id=request.location_id,
+            company_id=request.company_id,
+            status=new_status,
+            site_evidence=SiteEvidence.DISPROVEN,
+            address_confirmed=False,
+            evidence_sources=[EvidenceSource.USER],
+            notes=request.reason or "Rejected by user.",
+            sync_status=sync_status,
+        )
+
     return VerifyLocationResponse(
         location_id=request.location_id,
-        company_id=_CS_ENERGY_ID,
+        company_id=request.company_id,
         status=LocationStatus.VERIFIED,
         site_evidence=SiteEvidence.CONFIRMED,
         address_confirmed=True,
@@ -293,7 +402,174 @@ async def verify_location(request: VerifyLocationRequest) -> VerifyLocationRespo
             EvidenceSource.OFFICIAL_WEBSITE,
         ],
         notes="Site confirmed via QLD Planning & Land Services and company website.",
+        # No sheet write is attempted for a plain verification check (no
+        # action) -- nothing to be "pending" or "synced" about.
+        sync_status=SyncState.NEVER.value,
     )
+
+
+async def _persist_location_decision(
+    request: VerifyLocationRequest,
+    new_status: LocationStatus,
+) -> str:
+    """Persist a human approve/reject decision to the Locations tab.
+
+    This is the ONLY place discovery.py writes a location decision to the
+    sheet -- it fires solely from an explicit human action (action=
+    "approve"/"reject" on this endpoint), never from /internal/discover,
+    /internal/verify/company (auto), or the Jev pipeline.
+
+    Never raises: a sheet-write failure (mock mode, empty/garbage
+    spreadsheet id, transient API error, or anything else) must degrade
+    to an honest "PENDING" sync_status rather than crash the request or
+    falsely report "SYNCED" -- per the project's write-failure policy.
+
+    Note on mock mode: ``upsert_location`` itself returns SyncState.SYNCED
+    for a successful mock-mode write (that's its documented, correct
+    behavior -- the in-memory store did receive the write). But nothing
+    was actually persisted to a real, durable Google Sheet in that case,
+    so reporting "SYNCED" to the user would violate the "never fake
+    Synced" rule from a product perspective. We therefore also check
+    ``get_sync_status()["mode"]`` and only ever report "SYNCED" when the
+    adapter is connected to a real ("live") spreadsheet. This mirrors
+    ``_persist_company_decision`` exactly -- see its docstring.
+    """
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        row = {
+            "location_id": request.location_id,
+            "company_id": request.company_id or "",
+            "site_name": request.site_name or "",
+            "location_type": request.location_type or "",
+            "address": request.address or "",
+            "suburb": request.suburb or "",
+            "state": request.state or "",
+            "postcode": request.postcode or "",
+            "verification_status": new_status.value,
+            "last_modified": now,
+            "last_verified": now,
+        }
+        result = await sheets_adapter.upsert_location(row)
+        status_info = await sheets_adapter.get_sync_status()
+        if status_info.get("mode") != "live":
+            # Not actually connected to a real spreadsheet (mock mode).
+            # The mock write "succeeded" in-memory, but nothing durable
+            # happened -- honestly report PENDING, never SYNCED.
+            return SyncState.PENDING.value
+        return result.value
+    except Exception:
+        logger.exception(
+            "Sheet write failed for location %s decision %s; "
+            "reporting sync_status=PENDING.",
+            request.location_id,
+            new_status,
+        )
+        return SyncState.PENDING.value
+
+
+# ---------------------------------------------------------------------------
+# POST /internal/verify/contact
+# ---------------------------------------------------------------------------
+
+@router.post("/internal/verify/contact", response_model=VerifyContactResponse)
+async def verify_contact(request: VerifyContactRequest) -> VerifyContactResponse:
+    """Record a human approve/reject decision on a contact.
+
+    This is the human-in-the-loop endpoint for contacts, mirroring
+    ``verify_company``/``verify_location``: the frontend calls it with
+    action="approve" or action="reject" after a user reviews a contact
+    card in the dashboard. Jev/automation never calls this with an action
+    set -- doing so would be an auto-approve, which is not allowed. With
+    no action, it just runs a verification check and returns it.
+    """
+    if request.action in ("approve", "reject"):
+        new_status = (
+            ContactStatus.APPROVED
+            if request.action == "approve"
+            else ContactStatus.REJECTED
+        )
+        sync_status = await _persist_contact_decision(request, new_status)
+
+        return VerifyContactResponse(
+            contact_id=request.contact_id,
+            company_id=request.company_id,
+            status=new_status,
+            notes=request.reason
+            or (
+                "Approved by user."
+                if request.action == "approve"
+                else "Rejected by user."
+            ),
+            sync_status=sync_status,
+        )
+
+    return VerifyContactResponse(
+        contact_id=request.contact_id,
+        company_id=request.company_id,
+        status=ContactStatus.VERIFIED,
+        notes="Contact details verified.",
+        # No sheet write is attempted for a plain verification check (no
+        # action) -- nothing to be "pending" or "synced" about.
+        sync_status=SyncState.NEVER.value,
+    )
+
+
+async def _persist_contact_decision(
+    request: VerifyContactRequest,
+    new_status: ContactStatus,
+) -> str:
+    """Persist a human approve/reject decision to the Contacts tab.
+
+    This is the ONLY place discovery.py writes a contact decision to the
+    sheet -- it fires solely from an explicit human action (action=
+    "approve"/"reject" on this endpoint), never from
+    /internal/research/contacts or the Jev pipeline.
+
+    Never raises: a sheet-write failure (mock mode, empty/garbage
+    spreadsheet id, transient API error, or anything else) must degrade
+    to an honest "PENDING" sync_status rather than crash the request or
+    falsely report "SYNCED" -- per the project's write-failure policy.
+
+    Note on mock mode: ``upsert_contact`` itself returns SyncState.SYNCED
+    for a successful mock-mode write (that's its documented, correct
+    behavior -- the in-memory store did receive the write). But nothing
+    was actually persisted to a real, durable Google Sheet in that case,
+    so reporting "SYNCED" to the user would violate the "never fake
+    Synced" rule from a product perspective. We therefore also check
+    ``get_sync_status()["mode"]`` and only ever report "SYNCED" when the
+    adapter is connected to a real ("live") spreadsheet. This mirrors
+    ``_persist_company_decision`` exactly -- see its docstring.
+    """
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        row = {
+            "contact_id": request.contact_id,
+            "company_id": request.company_id or "",
+            "location_id": request.location_id or "",
+            "name": request.name or "",
+            "position": request.position or "",
+            "business_email": request.business_email or "",
+            "mobile": request.mobile or "",
+            "contact_status": new_status.value,
+            "last_modified": now,
+            "last_verified": now,
+        }
+        result = await sheets_adapter.upsert_contact(row)
+        status_info = await sheets_adapter.get_sync_status()
+        if status_info.get("mode") != "live":
+            # Not actually connected to a real spreadsheet (mock mode).
+            # The mock write "succeeded" in-memory, but nothing durable
+            # happened -- honestly report PENDING, never SYNCED.
+            return SyncState.PENDING.value
+        return result.value
+    except Exception:
+        logger.exception(
+            "Sheet write failed for contact %s decision %s; "
+            "reporting sync_status=PENDING.",
+            request.contact_id,
+            new_status,
+        )
+        return SyncState.PENDING.value
 
 
 # ---------------------------------------------------------------------------

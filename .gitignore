@@ -12,6 +12,9 @@ dist/
 build/
 *.tsbuildinfo
 
+# Cesium static assets (copied from node_modules by postinstall script)
+apps/web/public/cesium/
+
 # Environment
 .env
 .env.local
@@ -32,6 +35,9 @@ Thumbs.db
 credentials.json
 service-account.json
 *.key
+services/research/credentials/
+oauth_token.json
+*.oauth_token.json
 
 # Migration output
 migration_output.json

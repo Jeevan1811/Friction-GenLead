@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, type CSSProperties } from "react";
 import { Search, ChevronDown, ChevronUp, ArrowUpDown, Loader2 } from "lucide-react";
 import {
   companies as initialCompanies,
@@ -10,14 +10,43 @@ import {
   getLocationForCompany,
   type Company,
   type Contact,
+  type Location,
 } from "@/lib/fixtures";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DetailDrawer } from "@/components/shared/detail-drawer";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import { verifyCompany } from "@/lib/api";
+import { verifyCompany, verifyLocation, verifyContact } from "@/lib/api";
 
 type Tab = "all" | "new" | "review" | "approved" | "stale" | "no-contact" | "rejected";
+
+/** What's currently targeted by the (shared) reject-with-reason dialog. */
+type RejectTarget = {
+  kind: "company" | "location" | "contact";
+  id: string;
+  label: string;
+};
+
+/** Compact pill-style button for Approve/Reject actions inside drawer cards. */
+function compactBtnStyle(variant: "primary" | "secondary"): CSSProperties {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "4px",
+    height: "26px",
+    padding: "0 10px",
+    fontSize: "11px",
+    fontWeight: 500,
+    fontFamily: "var(--font-sans)",
+    color: variant === "primary" ? "var(--color-accent-text)" : "var(--color-text)",
+    background: variant === "primary" ? "var(--color-accent)" : "var(--color-surface)",
+    border: variant === "primary" ? "none" : "1px solid var(--color-border)",
+    borderRadius: "var(--radius-sm)",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  };
+}
 
 const tabs: { key: Tab; label: string; filter: (c: Company) => boolean }[] = [
   { key: "all", label: "All", filter: () => true },
@@ -42,8 +71,17 @@ export default function CompaniesPage() {
   const [sortAsc, setSortAsc] = useState(true);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [companies, setCompanies] = useState<Company[]>(initialCompanies);
+  const [locationsState, setLocationsState] = useState<Location[]>(locations);
+  const [contactsState, setContactsState] = useState<Contact[]>(contacts);
   const [actionLoading, setActionLoading] = useState(false);
-  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  // Per-card loading, keyed "loc:<id>" / "ct:<id>", for the direct-approve
+  // buttons on individual location/contact cards (no dialog involved, so
+  // each card's own in-flight action shouldn't disable its siblings).
+  const [entityLoading, setEntityLoading] = useState<Record<string, boolean>>({});
+  // Generalized reject-with-reason dialog target: which entity kind + id
+  // is being rejected. Replaces the old company-only boolean so the same
+  // dialog can serve companies, locations, and contacts.
+  const [rejectTarget, setRejectTarget] = useState<RejectTarget | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const { toast } = useToast();
 
@@ -95,10 +133,10 @@ export default function CompaniesPage() {
     ? companies.find((c) => c.companyId === selectedCompanyId)
     : null;
   const selectedLocs = selectedCompanyId
-    ? locations.filter((l) => l.companyId === selectedCompanyId)
+    ? locationsState.filter((l) => l.companyId === selectedCompanyId)
     : [];
   const selectedContacts = selectedCompanyId
-    ? contacts.filter((c) => c.companyId === selectedCompanyId)
+    ? contactsState.filter((c) => c.companyId === selectedCompanyId)
     : [];
 
   return (
@@ -412,31 +450,108 @@ export default function CompaniesPage() {
               <div className="text-label" style={{ marginBottom: "8px" }}>
                 Locations ({selectedLocs.length})
               </div>
-              {selectedLocs.map((loc) => (
-                <div
-                  key={loc.locationId}
-                  style={{
-                    padding: "12px",
-                    borderRadius: "var(--radius-sm)",
-                    border: "1px solid var(--color-border-subtle)",
-                    marginBottom: "8px",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                    <span style={{ fontSize: "13px", fontWeight: 500 }}>
-                      {loc.siteName}
-                    </span>
-                    <StatusBadge status={loc.locationType} />
+              {selectedLocs.map((loc) => {
+                const locKey = `loc:${loc.locationId}`;
+                const locLoading = !!entityLoading[locKey];
+                const disabled = locLoading || actionLoading;
+                return (
+                  <div
+                    key={loc.locationId}
+                    style={{
+                      padding: "12px",
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--color-border-subtle)",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "13px", fontWeight: 500 }}>
+                        {loc.siteName}
+                      </span>
+                      <StatusBadge status={loc.locationType} />
+                    </div>
+                    <div style={{ fontSize: "12px", color: "var(--color-text-secondary)" }}>
+                      {loc.address && `${loc.address}, `}
+                      {loc.suburb}, {loc.state} {loc.postcode}
+                    </div>
+                    <div style={{ marginTop: "4px" }}>
+                      <StatusBadge status={loc.verificationStatus} showDot />
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", marginTop: "8px" }}>
+                      {loc.verificationStatus !== "VERIFIED" && (
+                        <button
+                          disabled={disabled}
+                          style={{ ...compactBtnStyle("primary"), opacity: disabled ? 0.5 : 1 }}
+                          onClick={async () => {
+                            setEntityLoading((s) => ({ ...s, [locKey]: true }));
+                            try {
+                              const result = await verifyLocation(
+                                {
+                                  locationId: loc.locationId,
+                                  companyId: loc.companyId,
+                                  siteName: loc.siteName,
+                                  locationType: loc.locationType,
+                                  address: loc.address,
+                                  suburb: loc.suburb,
+                                  state: loc.state,
+                                  postcode: loc.postcode,
+                                },
+                                "approve"
+                              );
+                              setLocationsState((prev) =>
+                                prev.map((l) =>
+                                  l.locationId === loc.locationId
+                                    ? {
+                                        ...l,
+                                        verificationStatus: "VERIFIED",
+                                        lastVerified: new Date().toISOString(),
+                                      }
+                                    : l
+                                )
+                              );
+                              toast(
+                                result.sync_status === "SYNCED"
+                                  ? "Location approved and synced to sheet"
+                                  : "Location approved (sheet sync pending)",
+                                "success"
+                              );
+                            } catch (err) {
+                              const msg =
+                                err instanceof Error
+                                  ? err.message
+                                  : "Failed to approve location";
+                              toast(msg, "error");
+                            } finally {
+                              setEntityLoading((s) => ({ ...s, [locKey]: false }));
+                            }
+                          }}
+                        >
+                          {locLoading ? (
+                            <Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} />
+                          ) : null}
+                          Approve
+                        </button>
+                      )}
+                      {loc.verificationStatus !== "DISPUTED" && (
+                        <button
+                          disabled={disabled}
+                          style={{ ...compactBtnStyle("secondary"), opacity: disabled ? 0.5 : 1 }}
+                          onClick={() => {
+                            setRejectReason("");
+                            setRejectTarget({
+                              kind: "location",
+                              id: loc.locationId,
+                              label: loc.siteName,
+                            });
+                          }}
+                        >
+                          Reject
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ fontSize: "12px", color: "var(--color-text-secondary)" }}>
-                    {loc.address && `${loc.address}, `}
-                    {loc.suburb}, {loc.state} {loc.postcode}
-                  </div>
-                  <div style={{ marginTop: "4px" }}>
-                    <StatusBadge status={loc.verificationStatus} showDot />
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Contacts */}
@@ -444,40 +559,116 @@ export default function CompaniesPage() {
               <div className="text-label" style={{ marginBottom: "8px" }}>
                 Contacts ({selectedContacts.length})
               </div>
-              {selectedContacts.map((ct) => (
-                <div
-                  key={ct.contactId}
-                  style={{
-                    padding: "12px",
-                    borderRadius: "var(--radius-sm)",
-                    border: "1px solid var(--color-border-subtle)",
-                    marginBottom: "8px",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                    <span style={{ fontSize: "13px", fontWeight: 500 }}>
-                      {ct.name}
-                    </span>
-                    <StatusBadge status={ct.rolePriority} />
-                  </div>
-                  <div style={{ fontSize: "12px", color: "var(--color-text-secondary)" }}>
-                    {ct.position}
-                  </div>
-                  {ct.businessEmail && (
-                    <div style={{ fontSize: "12px", color: "var(--color-accent)", marginTop: "4px" }}>
-                      {ct.businessEmail}
+              {selectedContacts.map((ct) => {
+                const ctKey = `ct:${ct.contactId}`;
+                const ctLoading = !!entityLoading[ctKey];
+                const disabled = ctLoading || actionLoading;
+                return (
+                  <div
+                    key={ct.contactId}
+                    style={{
+                      padding: "12px",
+                      borderRadius: "var(--radius-sm)",
+                      border: "1px solid var(--color-border-subtle)",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "13px", fontWeight: 500 }}>
+                        {ct.name}
+                      </span>
+                      <StatusBadge status={ct.rolePriority} />
                     </div>
-                  )}
-                  {ct.mobile && (
-                    <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", marginTop: "2px" }}>
-                      {ct.mobile}
+                    <div style={{ fontSize: "12px", color: "var(--color-text-secondary)" }}>
+                      {ct.position}
                     </div>
-                  )}
-                  <div style={{ marginTop: "4px" }}>
-                    <StatusBadge status={ct.contactStatus} showDot />
+                    {ct.businessEmail && (
+                      <div style={{ fontSize: "12px", color: "var(--color-accent)", marginTop: "4px" }}>
+                        {ct.businessEmail}
+                      </div>
+                    )}
+                    {ct.mobile && (
+                      <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", marginTop: "2px" }}>
+                        {ct.mobile}
+                      </div>
+                    )}
+                    <div style={{ marginTop: "4px" }}>
+                      <StatusBadge status={ct.contactStatus} showDot />
+                    </div>
+                    <div style={{ display: "flex", gap: "6px", marginTop: "8px" }}>
+                      {ct.contactStatus !== "APPROVED" && (
+                        <button
+                          disabled={disabled}
+                          style={{ ...compactBtnStyle("primary"), opacity: disabled ? 0.5 : 1 }}
+                          onClick={async () => {
+                            setEntityLoading((s) => ({ ...s, [ctKey]: true }));
+                            try {
+                              const result = await verifyContact(
+                                {
+                                  contactId: ct.contactId,
+                                  companyId: ct.companyId,
+                                  locationId: ct.locationId,
+                                  name: ct.name,
+                                  position: ct.position,
+                                  businessEmail: ct.businessEmail,
+                                  mobile: ct.mobile,
+                                },
+                                "approve"
+                              );
+                              setContactsState((prev) =>
+                                prev.map((c) =>
+                                  c.contactId === ct.contactId
+                                    ? {
+                                        ...c,
+                                        contactStatus: "APPROVED",
+                                        lastVerified: new Date().toISOString(),
+                                      }
+                                    : c
+                                )
+                              );
+                              toast(
+                                result.sync_status === "SYNCED"
+                                  ? "Contact approved and synced to sheet"
+                                  : "Contact approved (sheet sync pending)",
+                                "success"
+                              );
+                            } catch (err) {
+                              const msg =
+                                err instanceof Error
+                                  ? err.message
+                                  : "Failed to approve contact";
+                              toast(msg, "error");
+                            } finally {
+                              setEntityLoading((s) => ({ ...s, [ctKey]: false }));
+                            }
+                          }}
+                        >
+                          {ctLoading ? (
+                            <Loader2 size={11} style={{ animation: "spin 1s linear infinite" }} />
+                          ) : null}
+                          Approve
+                        </button>
+                      )}
+                      {ct.contactStatus !== "REJECTED" && (
+                        <button
+                          disabled={disabled}
+                          style={{ ...compactBtnStyle("secondary"), opacity: disabled ? 0.5 : 1 }}
+                          onClick={() => {
+                            setRejectReason("");
+                            setRejectTarget({
+                              kind: "contact",
+                              id: ct.contactId,
+                              label: ct.name,
+                            });
+                          }}
+                        >
+                          Reject
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Actions */}
@@ -490,7 +681,7 @@ export default function CompaniesPage() {
                   onClick={async () => {
                     setActionLoading(true);
                     try {
-                      await verifyCompany(
+                      const result = await verifyCompany(
                         {
                           companyId: selectedCompany.companyId,
                           abn: selectedCompany.abn,
@@ -505,7 +696,12 @@ export default function CompaniesPage() {
                             : c
                         )
                       );
-                      toast("Company approved", "success");
+                      toast(
+                        result.sync_status === "SYNCED"
+                          ? "Company approved and synced to sheet"
+                          : "Company approved (sheet sync pending)",
+                        "success"
+                      );
                     } catch (err) {
                       const msg =
                         err instanceof Error
@@ -533,7 +729,11 @@ export default function CompaniesPage() {
                   disabled={actionLoading}
                   onClick={() => {
                     setRejectReason("");
-                    setRejectDialogOpen(true);
+                    setRejectTarget({
+                      kind: "company",
+                      id: selectedCompany.companyId,
+                      label: selectedCompany.tradingName ?? selectedCompany.companyName,
+                    });
                   }}
                 >
                   Reject
@@ -544,42 +744,117 @@ export default function CompaniesPage() {
         )}
       </DetailDrawer>
 
-      {/* Reject confirmation dialog */}
+      {/* Reject confirmation dialog -- shared by companies, locations, and
+          contacts; `rejectTarget` says which entity + kind is being
+          rejected. */}
       <ConfirmDialog
-        open={rejectDialogOpen}
-        title="Reject Company"
-        description="Are you sure you want to reject this company? Please provide a reason."
+        open={!!rejectTarget}
+        title={
+          rejectTarget?.kind === "location"
+            ? "Reject Location"
+            : rejectTarget?.kind === "contact"
+              ? "Reject Contact"
+              : "Reject Company"
+        }
+        description={`Are you sure you want to reject "${rejectTarget?.label ?? ""}"? Please provide a reason.`}
         confirmLabel="Reject"
         cancelLabel="Cancel"
         destructive
-        onCancel={() => setRejectDialogOpen(false)}
+        onCancel={() => setRejectTarget(null)}
         onConfirm={async () => {
-          if (!selectedCompany) return;
-          setRejectDialogOpen(false);
+          const target = rejectTarget;
+          if (!target) return;
+          setRejectTarget(null);
           setActionLoading(true);
           try {
-            await verifyCompany(
-              {
-                companyId: selectedCompany.companyId,
-                abn: selectedCompany.abn,
-                companyName: selectedCompany.companyName,
-              },
-              "reject",
-              rejectReason || "Rejected by user"
-            );
-            setCompanies((prev) =>
-              prev.map((c) =>
-                c.companyId === selectedCompany.companyId
-                  ? { ...c, status: "REJECTED" }
-                  : c
-              )
-            );
-            toast("Company rejected", "success");
+            if (target.kind === "company") {
+              const company = companies.find((c) => c.companyId === target.id);
+              if (!company) return;
+              const result = await verifyCompany(
+                {
+                  companyId: company.companyId,
+                  abn: company.abn,
+                  companyName: company.companyName,
+                },
+                "reject",
+                rejectReason || "Rejected by user"
+              );
+              setCompanies((prev) =>
+                prev.map((c) =>
+                  c.companyId === target.id ? { ...c, status: "REJECTED" } : c
+                )
+              );
+              toast(
+                result.sync_status === "SYNCED"
+                  ? "Company rejected and synced to sheet"
+                  : "Company rejected (sheet sync pending)",
+                "success"
+              );
+            } else if (target.kind === "location") {
+              const loc = locationsState.find((l) => l.locationId === target.id);
+              if (!loc) return;
+              const result = await verifyLocation(
+                {
+                  locationId: loc.locationId,
+                  companyId: loc.companyId,
+                  siteName: loc.siteName,
+                  locationType: loc.locationType,
+                  address: loc.address,
+                  suburb: loc.suburb,
+                  state: loc.state,
+                  postcode: loc.postcode,
+                },
+                "reject",
+                rejectReason || "Rejected by user"
+              );
+              setLocationsState((prev) =>
+                prev.map((l) =>
+                  l.locationId === target.id
+                    ? { ...l, verificationStatus: "DISPUTED" }
+                    : l
+                )
+              );
+              toast(
+                result.sync_status === "SYNCED"
+                  ? "Location rejected and synced to sheet"
+                  : "Location rejected (sheet sync pending)",
+                "success"
+              );
+            } else {
+              const ct = contactsState.find((c) => c.contactId === target.id);
+              if (!ct) return;
+              const result = await verifyContact(
+                {
+                  contactId: ct.contactId,
+                  companyId: ct.companyId,
+                  locationId: ct.locationId,
+                  name: ct.name,
+                  position: ct.position,
+                  businessEmail: ct.businessEmail,
+                  mobile: ct.mobile,
+                },
+                "reject",
+                rejectReason || "Rejected by user"
+              );
+              setContactsState((prev) =>
+                prev.map((c) =>
+                  c.contactId === target.id
+                    ? { ...c, contactStatus: "REJECTED" }
+                    : c
+                )
+              );
+              toast(
+                result.sync_status === "SYNCED"
+                  ? "Contact rejected and synced to sheet"
+                  : "Contact rejected (sheet sync pending)",
+                "success"
+              );
+            }
           } catch (err) {
             const msg =
               err instanceof Error
                 ? err.message
-                : "Failed to reject company";
+                : `Failed to reject ${target.kind}`;
             toast(msg, "error");
           } finally {
             setActionLoading(false);

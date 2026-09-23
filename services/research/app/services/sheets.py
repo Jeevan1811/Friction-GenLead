@@ -90,6 +90,7 @@ class SyncLogEntry:
 BATCH_CHUNK_SIZE = 50
 MAX_RETRIES = 3
 BACKOFF_BASE_SECONDS = 2.0
+TAB_CACHE_TTL_SECONDS = 15.0
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +126,8 @@ class GoogleSheetsAdapter:
     _contacts: dict[str, dict[str, Any]] = field(default_factory=dict)
     _rejections: list[dict[str, Any]] = field(default_factory=list)
     _sync_log: list[SyncLogEntry] = field(default_factory=list)
+    # tab_key -> (monotonic timestamp, rows); see _read_tab.
+    _tab_cache: dict[str, tuple[float, list[dict[str, Any]]]] = field(default_factory=dict)
 
     # Column configs (class-level constants for quick access).
     COMPANY_COLUMNS: list[str] = field(
@@ -438,8 +441,27 @@ class GoogleSheetsAdapter:
 
         return await self._read_tab("rejected")
 
+    def _invalidate_tab_cache(self, tab_key: str | None = None) -> None:
+        """Drop cached reads after a write so the next read sees it."""
+        if tab_key is None:
+            self._tab_cache.clear()
+        else:
+            self._tab_cache.pop(tab_key, None)
+
     async def _read_tab(self, tab_key: str) -> list[dict[str, Any]]:
-        """Read all rows from a tab and return as list of dicts."""
+        """Read all rows from a tab and return as list of dicts.
+
+        Results are cached for ``TAB_CACHE_TTL_SECONDS``. The dashboard loads
+        several list endpoints per page view against tabs with thousands of
+        rows; without this, a handful of page loads would blow through the
+        Sheets API read quota. The TTL is short so a direct edit made in the
+        Sheet itself still shows up in the dashboard within seconds. Failed
+        reads are never cached.
+        """
+        cached = self._tab_cache.get(tab_key)
+        if cached and (time.monotonic() - cached[0]) < TAB_CACHE_TTL_SECONDS:
+            return cached[1]
+
         tab_config = SPREADSHEET_TABS[tab_key]
         tab_name = tab_config["name"]
         columns = tab_config["columns"]
@@ -456,6 +478,7 @@ class GoogleSheetsAdapter:
             )
             rows = result.get("values", [])
             if len(rows) <= 1:
+                self._tab_cache[tab_key] = (time.monotonic(), [])
                 return []  # Only header row or empty.
 
             # Skip header row, map to dicts.
@@ -465,6 +488,7 @@ class GoogleSheetsAdapter:
                 for i, col in enumerate(columns):
                     record[col] = row[i] if i < len(row) else None
                 records.append(record)
+            self._tab_cache[tab_key] = (time.monotonic(), records)
             return records
 
         except Exception:
@@ -652,6 +676,7 @@ class GoogleSheetsAdapter:
                 body={"values": [row]},
             ).execute()
 
+            self._invalidate_tab_cache("rejected")
             return SyncState.SYNCED
 
         except Exception:
@@ -905,6 +930,8 @@ class GoogleSheetsAdapter:
                         body={"values": [row_values]},
                     ).execute()
                     operation = "insert"
+
+                self._invalidate_tab_cache(tab_key)
 
                 # Log the sync operation.
                 self._log_sync(

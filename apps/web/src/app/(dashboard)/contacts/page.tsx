@@ -6,6 +6,7 @@ import { getContacts, getCompanies } from "@/lib/api";
 import type { Contact, Company } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PageLoading, PageError } from "@/components/shared/page-status";
+import { Pager, PAGE_SIZE } from "@/components/shared/pager";
 
 const priorityFilters = ["ALL", "PRIORITY", "SECONDARY", "OTHER"];
 
@@ -43,12 +44,17 @@ export default function ContactsPage() {
     };
   }, []);
 
+  const companyById = useMemo(
+    () => new Map(companies.map((c) => [c.companyId, c])),
+    [companies]
+  );
+
   const filtered = useMemo(() => {
     return contacts.filter((ct) => {
       if (priorityFilter !== "ALL" && ct.rolePriority !== priorityFilter) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
-        const company = companies.find((c) => c.companyId === ct.companyId);
+        const company = companyById.get(ct.companyId);
         return (
           ct.name.toLowerCase().includes(q) ||
           ct.position?.toLowerCase().includes(q) ||
@@ -58,7 +64,16 @@ export default function ContactsPage() {
       }
       return true;
     });
-  }, [contacts, companies, priorityFilter, searchQuery]);
+  }, [contacts, companyById, priorityFilter, searchQuery]);
+
+  const [page, setPage] = useState(0);
+  useEffect(() => {
+    setPage(0);
+  }, [priorityFilter, searchQuery]);
+  const pageRows = useMemo(
+    () => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [filtered, page]
+  );
 
   return (
     <div style={{ padding: "24px" }}>
@@ -185,10 +200,8 @@ export default function ContactsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((ct) => {
-                const company = companies.find(
-                  (c) => c.companyId === ct.companyId
-                );
+              {pageRows.map((ct) => {
+                const company = companyById.get(ct.companyId);
                 return (
                   <tr
                     key={ct.contactId}
@@ -207,7 +220,7 @@ export default function ContactsPage() {
                       {ct.name}
                     </td>
                     <td style={{ padding: "12px 16px", color: "var(--color-text-secondary)" }}>
-                      {company?.tradingName ?? company?.companyName ?? "--"}
+                      {company?.tradingName || company?.companyName || "--"}
                     </td>
                     <td style={{ padding: "12px 16px", color: "var(--color-text-secondary)" }}>
                       {ct.position ?? "--"}
@@ -267,6 +280,14 @@ export default function ContactsPage() {
               })}
             </tbody>
           </table>
+        )}
+        {filtered.length > 0 && (
+          <Pager
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={filtered.length}
+            onChange={setPage}
+          />
         )}
       </div>
       </>

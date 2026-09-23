@@ -7,6 +7,7 @@ import type { Location, Company } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { GlobeView } from "@/components/shared/globe-view";
 import { PageLoading, PageError } from "@/components/shared/page-status";
+import { Pager, PAGE_SIZE } from "@/components/shared/pager";
 
 type ViewMode = "list" | "grid";
 
@@ -49,13 +50,18 @@ export default function LocationsPage() {
     };
   }, []);
 
+  const companyById = useMemo(
+    () => new Map(companies.map((c) => [c.companyId, c])),
+    [companies]
+  );
+
   const filtered = useMemo(() => {
     return locations.filter((loc) => {
       if (typeFilter !== "ALL" && loc.locationType !== typeFilter) return false;
       if (statusFilter !== "ALL" && loc.verificationStatus !== statusFilter) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
-        const company = companies.find((c) => c.companyId === loc.companyId);
+        const company = companyById.get(loc.companyId);
         return (
           loc.siteName.toLowerCase().includes(q) ||
           loc.suburb?.toLowerCase().includes(q) ||
@@ -65,7 +71,16 @@ export default function LocationsPage() {
       }
       return true;
     });
-  }, [locations, companies, typeFilter, statusFilter, searchQuery]);
+  }, [locations, companyById, typeFilter, statusFilter, searchQuery]);
+
+  const [page, setPage] = useState(0);
+  useEffect(() => {
+    setPage(0);
+  }, [typeFilter, statusFilter, searchQuery]);
+  const pageRows = useMemo(
+    () => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [filtered, page]
+  );
 
   return (
     <div style={{ padding: "24px" }}>
@@ -220,8 +235,8 @@ export default function LocationsPage() {
             gap: "12px",
           }}
         >
-          {filtered.map((loc) => {
-            const company = companies.find((c) => c.companyId === loc.companyId);
+          {pageRows.map((loc) => {
+            const company = companyById.get(loc.companyId);
             return (
               <div
                 key={loc.locationId}
@@ -244,7 +259,7 @@ export default function LocationsPage() {
                       {loc.siteName}
                     </div>
                     <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", marginTop: "2px" }}>
-                      {company?.tradingName ?? company?.companyName ?? "Unknown"}
+                      {company?.tradingName || company?.companyName || "Unknown"}
                     </div>
                   </div>
                   <StatusBadge status={loc.locationType} />
@@ -282,8 +297,8 @@ export default function LocationsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((loc) => {
-                const company = companies.find((c) => c.companyId === loc.companyId);
+              {pageRows.map((loc) => {
+                const company = companyById.get(loc.companyId);
                 return (
                   <tr
                     key={loc.locationId}
@@ -301,7 +316,7 @@ export default function LocationsPage() {
                   >
                     <td style={{ padding: "12px 16px", fontWeight: 500 }}>{loc.siteName}</td>
                     <td style={{ padding: "12px 16px", color: "var(--color-text-secondary)" }}>
-                      {company?.tradingName ?? company?.companyName ?? "--"}
+                      {company?.tradingName || company?.companyName || "--"}
                     </td>
                     <td style={{ padding: "12px 16px" }}>
                       <StatusBadge status={loc.locationType} />
@@ -320,6 +335,16 @@ export default function LocationsPage() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {filtered.length > 0 && (
+        <div className="surface-card" style={{ marginTop: "12px" }}>
+          <Pager
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={filtered.length}
+            onChange={setPage}
+          />
         </div>
       )}
         </>

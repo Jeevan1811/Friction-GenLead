@@ -51,8 +51,43 @@ def _row_to_camel_case(row: dict[str, Any]) -> dict[str, Any]:
     return {_snake_to_camel(k): v for k, v in row.items()}
 
 
+# Google Sheets returns every cell as a string, and an empty cell inside a
+# row as "" (not None). The frontend's optional fields (`tradingName?`,
+# `suburb?`, `position?` ...) are written for null/undefined -- e.g.
+# `company.tradingName ?? company.companyName` -- and `"" ?? x` is `""`, so
+# an empty trading name used to blank out the real company name. Normalize
+# empty strings to None here, once, for every optional field.
+_NUMERIC_FIELDS: dict[str, type] = {"priority": int, "lat": float, "lng": float}
+
+# Fields the frontend types as required strings stay "" when empty; only
+# fields typed optional in apps/web/src/lib/types.ts are nulled.
+_OPTIONAL_FIELDS: frozenset[str] = frozenset({
+    "tradingName", "website", "industry", "abnStatus", "priority",
+    "lastVerified", "notes",
+    "address", "suburb", "lat", "lng",
+    "locationId", "position", "roleBucket", "businessEmail", "mobile",
+    "landline", "professionalUrl",
+})
+
+
+def _clean_row(row: dict[str, Any]) -> dict[str, Any]:
+    out = _row_to_camel_case(row)
+    for key in list(out):
+        value = out[key]
+        if key in _OPTIONAL_FIELDS:
+            if value is None or (isinstance(value, str) and not value.strip()):
+                out[key] = None
+                continue
+        if key in _NUMERIC_FIELDS and isinstance(value, str):
+            try:
+                out[key] = _NUMERIC_FIELDS[key](float(value))
+            except ValueError:
+                out[key] = None
+    return out
+
+
 def _rows_to_camel_case(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [_row_to_camel_case(r) for r in rows]
+    return [_clean_row(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------

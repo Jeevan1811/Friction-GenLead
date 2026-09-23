@@ -16,6 +16,7 @@ import {
   getContacts,
 } from "@/lib/api";
 import { PageLoading, PageError } from "@/components/shared/page-status";
+import { Pager, PAGE_SIZE } from "@/components/shared/pager";
 
 type Tab = "all" | "new" | "review" | "approved" | "stale" | "no-contact" | "rejected";
 
@@ -103,13 +104,32 @@ export default function CompaniesPage() {
   // Local replacements for the old fixture-module helpers `getBestContact`
   // / `getLocationForCompany`, which operated on the (now-removed) static
   // fixture arrays -- these operate on live fetched state instead.
+  // Indexed once per data change. The Sheet holds thousands of rows and these
+  // lookups run per table row and inside the sort comparator, so linear
+  // scans (O(companies x locations)) froze the page.
+  const locationByCompany = useMemo(() => {
+    const m = new Map<string, Location>();
+    for (const l of locationsState) if (!m.has(l.companyId)) m.set(l.companyId, l);
+    return m;
+  }, [locationsState]);
+
+  const contactsByCompany = useMemo(() => {
+    const m = new Map<string, Contact[]>();
+    for (const c of contactsState) {
+      const list = m.get(c.companyId);
+      if (list) list.push(c);
+      else m.set(c.companyId, [c]);
+    }
+    return m;
+  }, [contactsState]);
+
   const getBestContact = (companyId: string): Contact | undefined => {
-    const companyContacts = contactsState.filter((c) => c.companyId === companyId);
+    const companyContacts = contactsByCompany.get(companyId) ?? [];
     return companyContacts.find((c) => c.rolePriority === "PRIORITY") ?? companyContacts[0];
   };
 
   const getLocationForCompany = (companyId: string): Location | undefined =>
-    locationsState.find((l) => l.companyId === companyId);
+    locationByCompany.get(companyId);
 
   const tabs: { key: Tab; label: string; filter: (c: Company) => boolean }[] = [
     { key: "all", label: "All", filter: () => true },
@@ -120,7 +140,7 @@ export default function CompaniesPage() {
     {
       key: "no-contact",
       label: "No Contact",
-      filter: (c) => contactsState.filter((ct) => ct.companyId === c.companyId).length === 0,
+      filter: (c) => (contactsByCompany.get(c.companyId)?.length ?? 0) === 0,
     },
     { key: "rejected", label: "Rejected", filter: (c) => c.status === "REJECTED" },
   ];
@@ -150,7 +170,16 @@ export default function CompaniesPage() {
       return sortAsc ? cmp : -cmp;
     });
     return result;
-  }, [activeTab, searchQuery, sortKey, sortAsc, tabDef, companies, locationsState]);
+  }, [activeTab, searchQuery, sortKey, sortAsc, tabDef, companies, locationByCompany, contactsByCompany]);
+
+  const [page, setPage] = useState(0);
+  useEffect(() => {
+    setPage(0);
+  }, [activeTab, searchQuery, sortKey, sortAsc]);
+  const pageRows = useMemo(
+    () => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+    [filtered, page]
+  );
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
@@ -354,7 +383,7 @@ export default function CompaniesPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((company) => {
+              {pageRows.map((company) => {
                 const loc = getLocationForCompany(company.companyId);
                 const contact = getBestContact(company.companyId);
                 return (
@@ -375,10 +404,10 @@ export default function CompaniesPage() {
                   >
                     <td style={{ padding: "12px 16px" }}>
                       <div style={{ fontWeight: 500, color: "var(--color-text)" }}>
-                        {company.tradingName ?? company.companyName}
+                        {company.tradingName || company.companyName}
                       </div>
                       <div style={{ fontSize: "11px", color: "var(--color-text-muted)", marginTop: "1px" }}>
-                        ABN {company.abn}
+                        {company.abn ? `ABN ${company.abn}` : "No ABN on file"}
                       </div>
                     </td>
                     <td style={{ padding: "12px 16px" }}>
@@ -388,7 +417,7 @@ export default function CompaniesPage() {
                             {loc.siteName}
                           </div>
                           <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>
-                            {loc.suburb}, {loc.postcode}
+                            {[loc.suburb, loc.postcode].filter(Boolean).join(", ")}
                           </div>
                         </div>
                       ) : (
@@ -425,6 +454,12 @@ export default function CompaniesPage() {
               })}
             </tbody>
           </table>
+          <Pager
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={filtered.length}
+            onChange={setPage}
+          />
         </div>
       )}
 
@@ -432,7 +467,7 @@ export default function CompaniesPage() {
       <DetailDrawer
         open={!!selectedCompany}
         onClose={() => setSelectedCompanyId(null)}
-        title={selectedCompany?.tradingName ?? selectedCompany?.companyName ?? ""}
+        title={selectedCompany?.tradingName || selectedCompany?.companyName || ""}
       >
         {selectedCompany && (
           <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>

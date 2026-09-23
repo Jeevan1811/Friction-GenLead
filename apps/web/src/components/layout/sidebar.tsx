@@ -15,14 +15,7 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { SyncIndicator } from "@/components/shared/sync-indicator";
-import {
-  getCompanies,
-  getLocations,
-  getContacts,
-  getJobs,
-  getRejected,
-  getSyncStatus,
-} from "@/lib/api";
+import { getJobs, getSyncStatus } from "@/lib/api";
 import type { SyncStatus } from "@/lib/types";
 
 interface SidebarProps {
@@ -47,41 +40,23 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   useEffect(() => {
     let cancelled = false;
 
-    getCompanies()
-      .then((data) => {
-        if (!cancelled) {
-          setCompaniesCount(data.filter((c) => c.status !== "REJECTED").length);
-        }
-      })
-      .catch(() => {});
-
-    getLocations()
-      .then((data) => {
-        if (!cancelled) setLocationsCount(data.length);
-      })
-      .catch(() => {});
-
-    getContacts()
-      .then((data) => {
-        if (!cancelled) setContactsCount(data.length);
-      })
-      .catch(() => {});
-
     getJobs()
       .then((data) => {
         if (!cancelled) setSearchesCount(data.length);
       })
       .catch(() => {});
 
-    getRejected()
-      .then((data) => {
-        if (!cancelled) setRejectedCount(data.length);
-      })
-      .catch(() => {});
-
+    // Badge counts come from the sync-status summary rather than
+    // downloading every full list just to call .length -- with thousands
+    // of rows per tab that was megabytes per page view.
     getSyncStatus()
       .then((data) => {
-        if (!cancelled) setSync(data);
+        if (cancelled) return;
+        setSync(data);
+        setCompaniesCount(data.companiesCount);
+        setLocationsCount(data.locationsCount);
+        setContactsCount(data.contactsCount);
+        setRejectedCount(data.rejectionsCount);
       })
       .catch(() => {
         if (!cancelled) {

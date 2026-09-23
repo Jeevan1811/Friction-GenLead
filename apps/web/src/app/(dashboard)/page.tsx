@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Building2,
@@ -11,42 +12,9 @@ import {
   Clock,
   CheckCircle2,
 } from "lucide-react";
-import { companies, locations, contacts, searchRuns } from "@/lib/fixtures";
-import { StatusBadge } from "@/components/shared/status-badge";
-
-const stats = [
-  {
-    label: "Total Companies",
-    value: companies.filter((c) => c.status !== "REJECTED").length,
-    icon: Building2,
-    color: "var(--color-accent)",
-    bg: "var(--color-accent-light)",
-  },
-  {
-    label: "Verified Locations",
-    value: locations.filter((l) => l.verificationStatus === "VERIFIED").length,
-    icon: MapPin,
-    color: "var(--color-success)",
-    bg: "#F0FDF4",
-  },
-  {
-    label: "Active Contacts",
-    value: contacts.filter(
-      (c) => c.contactStatus !== "STALE" && c.contactStatus !== "LEFT_COMPANY"
-    ).length,
-    icon: Users,
-    color: "var(--color-info)",
-    bg: "#EFF6FF",
-  },
-  {
-    label: "Pending Reviews",
-    value: companies.filter((c) => c.status === "REVIEW" || c.status === "NEW")
-      .length,
-    icon: AlertCircle,
-    color: "var(--color-warning)",
-    bg: "#FFFBEB",
-  },
-];
+import { getCompanies, getLocations, getContacts } from "@/lib/api";
+import type { Company, Location, Contact } from "@/lib/types";
+import { PageLoading, PageError } from "@/components/shared/page-status";
 
 const recentActivity = [
   {
@@ -87,6 +55,77 @@ const recentActivity = [
 ];
 
 export default function DashboardPage() {
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [companiesData, locationsData, contactsData] = await Promise.all([
+          getCompanies(),
+          getLocations(),
+          getContacts(),
+        ]);
+        if (cancelled) return;
+        setCompanies(companiesData);
+        setLocations(locationsData);
+        setContacts(contactsData);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load dashboard data");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const reviewQueueCount = companies.filter(
+    (c) => c.status === "REVIEW" || c.status === "NEW"
+  ).length;
+
+  const stats = [
+    {
+      label: "Total Companies",
+      value: companies.filter((c) => c.status !== "REJECTED").length,
+      icon: Building2,
+      color: "var(--color-accent)",
+      bg: "var(--color-accent-light)",
+    },
+    {
+      label: "Verified Locations",
+      value: locations.filter((l) => l.verificationStatus === "VERIFIED").length,
+      icon: MapPin,
+      color: "var(--color-success)",
+      bg: "#F0FDF4",
+    },
+    {
+      label: "Active Contacts",
+      value: contacts.filter(
+        (c) => c.contactStatus !== "STALE" && c.contactStatus !== "LEFT_COMPANY"
+      ).length,
+      icon: Users,
+      color: "var(--color-info)",
+      bg: "#EFF6FF",
+    },
+    {
+      label: "Pending Reviews",
+      value: reviewQueueCount,
+      icon: AlertCircle,
+      color: "var(--color-warning)",
+      bg: "#FFFBEB",
+    },
+  ];
+
   return (
     <div style={{ padding: "24px", maxWidth: "1200px" }}>
       <div style={{ marginBottom: "24px" }}>
@@ -104,6 +143,16 @@ export default function DashboardPage() {
         </p>
       </div>
 
+      {error && (
+        <div style={{ marginBottom: "24px" }}>
+          <PageError message={error} />
+        </div>
+      )}
+
+      {loading ? (
+        <PageLoading label="Loading dashboard..." />
+      ) : (
+        <>
       {/* Stat cards */}
       <div
         style={{
@@ -298,11 +347,7 @@ export default function DashboardPage() {
                     color: "var(--color-text-muted)",
                   }}
                 >
-                  {
-                    companies.filter(
-                      (c) => c.status === "REVIEW" || c.status === "NEW"
-                    ).length
-                  }{" "}
+                  {reviewQueueCount}{" "}
                   companies need attention
                 </div>
               </div>
@@ -369,6 +414,8 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 }

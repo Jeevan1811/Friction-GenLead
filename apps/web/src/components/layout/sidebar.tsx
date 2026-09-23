@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
@@ -15,46 +15,15 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { SyncIndicator } from "@/components/shared/sync-indicator";
-import { syncStatus, companies, locations, contacts, searchRuns, rejectedEntities } from "@/lib/fixtures";
-
-const navItems = [
-  {
-    href: "/search",
-    label: "Search",
-    icon: Search,
-    count: null,
-  },
-  {
-    href: "/companies",
-    label: "Companies",
-    icon: Building2,
-    countFn: () => companies.filter((c) => c.status !== "REJECTED").length,
-  },
-  {
-    href: "/locations",
-    label: "Locations",
-    icon: MapPin,
-    countFn: () => locations.length,
-  },
-  {
-    href: "/contacts",
-    label: "Contacts",
-    icon: Users,
-    countFn: () => contacts.length,
-  },
-  {
-    href: "/searches",
-    label: "Searches",
-    icon: History,
-    countFn: () => searchRuns.length,
-  },
-  {
-    href: "/rejected",
-    label: "Rejected",
-    icon: XCircle,
-    countFn: () => rejectedEntities.length,
-  },
-];
+import {
+  getCompanies,
+  getLocations,
+  getContacts,
+  getJobs,
+  getRejected,
+  getSyncStatus,
+} from "@/lib/api";
+import type { SyncStatus } from "@/lib/types";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -63,6 +32,117 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
+
+  // Nav badge counts and the sync indicator are all "nice to have" chrome,
+  // not primary page content -- if a fetch fails, the badge just doesn't
+  // show a count (null) and the sync dot shows "Sync error" rather than
+  // blocking the whole sidebar with an error banner.
+  const [companiesCount, setCompaniesCount] = useState<number | null>(null);
+  const [locationsCount, setLocationsCount] = useState<number | null>(null);
+  const [contactsCount, setContactsCount] = useState<number | null>(null);
+  const [searchesCount, setSearchesCount] = useState<number | null>(null);
+  const [rejectedCount, setRejectedCount] = useState<number | null>(null);
+  const [sync, setSync] = useState<SyncStatus | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    getCompanies()
+      .then((data) => {
+        if (!cancelled) {
+          setCompaniesCount(data.filter((c) => c.status !== "REJECTED").length);
+        }
+      })
+      .catch(() => {});
+
+    getLocations()
+      .then((data) => {
+        if (!cancelled) setLocationsCount(data.length);
+      })
+      .catch(() => {});
+
+    getContacts()
+      .then((data) => {
+        if (!cancelled) setContactsCount(data.length);
+      })
+      .catch(() => {});
+
+    getJobs()
+      .then((data) => {
+        if (!cancelled) setSearchesCount(data.length);
+      })
+      .catch(() => {});
+
+    getRejected()
+      .then((data) => {
+        if (!cancelled) setRejectedCount(data.length);
+      })
+      .catch(() => {});
+
+    getSyncStatus()
+      .then((data) => {
+        if (!cancelled) setSync(data);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSync({
+            connected: false,
+            mode: "mock",
+            spreadsheetId: null,
+            companiesCount: 0,
+            locationsCount: 0,
+            contactsCount: 0,
+            rejectionsCount: 0,
+            syncLogEntries: 0,
+            lastSync: null,
+            state: "ERROR",
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const navItems = [
+    {
+      href: "/search",
+      label: "Search",
+      icon: Search,
+      count: null as number | null,
+    },
+    {
+      href: "/companies",
+      label: "Companies",
+      icon: Building2,
+      count: companiesCount,
+    },
+    {
+      href: "/locations",
+      label: "Locations",
+      icon: MapPin,
+      count: locationsCount,
+    },
+    {
+      href: "/contacts",
+      label: "Contacts",
+      icon: Users,
+      count: contactsCount,
+    },
+    {
+      href: "/searches",
+      label: "Searches",
+      icon: History,
+      count: searchesCount,
+    },
+    {
+      href: "/rejected",
+      label: "Rejected",
+      icon: XCircle,
+      count: rejectedCount,
+    },
+  ];
 
   return (
     <aside
@@ -146,7 +226,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           const isActive =
             pathname === item.href ||
             (item.href !== "/" && pathname.startsWith(item.href));
-          const count = item.countFn ? item.countFn() : null;
+          const count = item.count;
           const Icon = item.icon;
 
           return (
@@ -236,8 +316,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         }}
       >
         <SyncIndicator
-          state={syncStatus.state}
-          lastSync={syncStatus.lastSync}
+          state={sync?.state ?? "NEVER"}
+          lastSync={sync?.lastSync ?? undefined}
           collapsed={collapsed}
         />
       </div>

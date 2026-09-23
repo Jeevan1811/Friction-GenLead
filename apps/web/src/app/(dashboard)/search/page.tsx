@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Search,
   ChevronDown,
@@ -11,11 +11,12 @@ import {
   Check,
   Loader2,
 } from "lucide-react";
-import { searchRuns } from "@/lib/fixtures";
+import type { JobRun } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ResearchProgress } from "@/components/shared/research-progress";
 import { useToast } from "@/components/ui/toast";
-import { startResearch } from "@/lib/api";
+import { startResearch, getJobs } from "@/lib/api";
+import { PageLoading, PageError } from "@/components/shared/page-status";
 
 const INDUSTRIES = [
   "Mining",
@@ -62,7 +63,34 @@ export default function SearchPage() {
   const [submitting, setSubmitting] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [researchPostcode, setResearchPostcode] = useState("");
+  const [searchRuns, setSearchRuns] = useState<JobRun[]>([]);
+  const [searchRunsLoading, setSearchRunsLoading] = useState(true);
+  const [searchRunsError, setSearchRunsError] = useState<string | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setSearchRunsLoading(true);
+      setSearchRunsError(null);
+      try {
+        const data = await getJobs();
+        if (!cancelled) setSearchRuns(data);
+      } catch (err) {
+        if (!cancelled) {
+          setSearchRunsError(
+            err instanceof Error ? err.message : "Failed to load recent searches"
+          );
+        }
+      } finally {
+        if (!cancelled) setSearchRunsLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggleRole = (role: string) => {
     setSelectedRoles((prev) =>
@@ -446,7 +474,15 @@ export default function SearchPage() {
           Recent Searches
         </h3>
 
-        {searchRuns.length === 0 ? (
+        {searchRunsError && (
+          <div style={{ marginBottom: "12px" }}>
+            <PageError message={searchRunsError} />
+          </div>
+        )}
+
+        {searchRunsLoading ? (
+          <PageLoading label="Loading recent searches..." />
+        ) : searchRuns.length === 0 ? (
           <div
             className="surface-card"
             style={{
@@ -479,7 +515,7 @@ export default function SearchPage() {
           >
             {searchRuns.map((run) => (
               <div
-                key={run.searchId}
+                key={run.jobId}
                 className="surface-card"
                 style={{
                   padding: "16px 20px",
@@ -551,7 +587,7 @@ export default function SearchPage() {
                       color: "var(--color-text-muted)",
                     }}
                   >
-                    {formatDate(run.startedAt)}
+                    {formatDate(run.createdAt)}
                   </div>
                 </div>
                 <div

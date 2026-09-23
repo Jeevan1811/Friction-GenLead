@@ -1,15 +1,47 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Search, Mail, Phone } from "lucide-react";
-import { contacts, companies } from "@/lib/fixtures";
+import { getContacts, getCompanies } from "@/lib/api";
+import type { Contact, Company } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { PageLoading, PageError } from "@/components/shared/page-status";
 
 const priorityFilters = ["ALL", "PRIORITY", "SECONDARY", "OTHER"];
 
 export default function ContactsPage() {
   const [priorityFilter, setPriorityFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [contactsData, companiesData] = await Promise.all([
+          getContacts(),
+          getCompanies(),
+        ]);
+        if (cancelled) return;
+        setContacts(contactsData);
+        setCompanies(companiesData);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load contacts");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     return contacts.filter((ct) => {
@@ -26,7 +58,7 @@ export default function ContactsPage() {
       }
       return true;
     });
-  }, [priorityFilter, searchQuery]);
+  }, [contacts, companies, priorityFilter, searchQuery]);
 
   return (
     <div style={{ padding: "24px" }}>
@@ -39,6 +71,16 @@ export default function ContactsPage() {
         </p>
       </div>
 
+      {error && (
+        <div style={{ marginBottom: "16px" }}>
+          <PageError message={error} />
+        </div>
+      )}
+
+      {loading && <PageLoading label="Loading contacts..." />}
+
+      {!loading && (
+      <>
       {/* Toolbar */}
       <div
         style={{
@@ -227,6 +269,8 @@ export default function ContactsPage() {
           </table>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

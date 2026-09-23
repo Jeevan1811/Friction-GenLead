@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { LayoutGrid, List, Search } from "lucide-react";
-import { locations, companies } from "@/lib/fixtures";
+import { getLocations, getCompanies } from "@/lib/api";
+import type { Location, Company } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { GlobeView } from "@/components/shared/globe-view";
+import { PageLoading, PageError } from "@/components/shared/page-status";
 
 type ViewMode = "list" | "grid";
 
@@ -16,6 +18,36 @@ export default function LocationsPage() {
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const [locations, setLocations] = useState<Location[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [locationsData, companiesData] = await Promise.all([
+          getLocations(),
+          getCompanies(),
+        ]);
+        if (cancelled) return;
+        setLocations(locationsData);
+        setCompanies(companiesData);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load locations");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     return locations.filter((loc) => {
@@ -33,7 +65,7 @@ export default function LocationsPage() {
       }
       return true;
     });
-  }, [typeFilter, statusFilter, searchQuery]);
+  }, [locations, companies, typeFilter, statusFilter, searchQuery]);
 
   return (
     <div style={{ padding: "24px" }}>
@@ -46,6 +78,16 @@ export default function LocationsPage() {
         </p>
       </div>
 
+      {error && (
+        <div style={{ marginBottom: "16px" }}>
+          <PageError message={error} />
+        </div>
+      )}
+
+      {loading ? (
+        <PageLoading label="Loading locations..." />
+      ) : (
+        <>
       {/* Globe map view */}
       <GlobeView locations={filtered} />
 
@@ -279,6 +321,8 @@ export default function LocationsPage() {
             </tbody>
           </table>
         </div>
+      )}
+        </>
       )}
     </div>
   );

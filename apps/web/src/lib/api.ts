@@ -1,3 +1,12 @@
+import type {
+  Company,
+  Location,
+  Contact,
+  RejectedEntity,
+  SyncStatus,
+  JobRun,
+} from "@/lib/types";
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
 /**
@@ -44,7 +53,13 @@ async function extractErrorMessage(res: Response): Promise<string> {
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+  // credentials: "include" is required here -- API_BASE is a separate
+  // origin from the Next.js app (a different port locally, and possibly a
+  // different origin in production too depending on the reverse-proxy
+  // setup), and the FastAPI backend's require_auth reads the session JWT
+  // from a cookie. Without this, the browser silently drops that cookie
+  // on the cross-origin request and every call 401s even when logged in.
+  const res = await fetch(`${API_BASE}${path}`, { credentials: "include" });
   if (!res.ok) throw new Error(await extractErrorMessage(res));
   return res.json();
 }
@@ -52,6 +67,7 @@ export async function apiGet<T>(path: string): Promise<T> {
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -159,4 +175,65 @@ export async function sendChatMessage(
     "/internal/chat",
     { messages, stream: false }
   );
+}
+
+/* ---------- Live data reads (Google Sheets, via /internal/data/*) ----------
+ *
+ * These back every dashboard list page that used to render mock data from
+ * `@/lib/fixtures`. The backend's `data.py` router already converts every
+ * row to camelCase, so the response JSON matches these types as-is -- no
+ * reshaping needed here.
+ */
+
+export async function getCompanies(): Promise<Company[]> {
+  return apiGet<Company[]>("/internal/data/companies");
+}
+
+export async function getLocations(): Promise<Location[]> {
+  return apiGet<Location[]>("/internal/data/locations");
+}
+
+export async function getContacts(): Promise<Contact[]> {
+  return apiGet<Contact[]>("/internal/data/contacts");
+}
+
+export async function getRejected(): Promise<RejectedEntity[]> {
+  return apiGet<RejectedEntity[]>("/internal/data/rejected");
+}
+
+export async function getSyncStatus(): Promise<SyncStatus> {
+  return apiGet<SyncStatus>("/internal/data/sync-status");
+}
+
+/* ---------- Jev research jobs (/internal/ops/jobs) ----------
+ *
+ * Backs the Searches pages, which used to render the mock `searchRuns`
+ * fixture. There's no Google Sheet tab for search runs, so this reads the
+ * Jev pipeline's in-memory job list instead. Unlike the `/internal/data/*`
+ * routes, `/internal/ops/jobs` returns snake_case as-is (it's owned by
+ * `operations.py`, not the new camelCase-converting `data.py` router), so
+ * the conversion to the frontend's `JobRun` shape happens here.
+ */
+
+interface JobListRow {
+  job_id: string;
+  postcode: string;
+  industry: string | null;
+  status: string;
+  companies_found: number;
+  contacts_found: number;
+  created_at: string;
+}
+
+export async function getJobs(): Promise<JobRun[]> {
+  const rows = await apiGet<JobListRow[]>("/internal/ops/jobs");
+  return rows.map((r) => ({
+    jobId: r.job_id,
+    postcode: r.postcode,
+    industry: r.industry,
+    status: r.status,
+    companiesFound: r.companies_found,
+    contactsFound: r.contacts_found,
+    createdAt: r.created_at,
+  }));
 }

@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 # import time.
 load_dotenv()
 
-from .routers import chat, discovery, health, import_router, operations
+from .routers import chat, data, discovery, health, import_router, operations
 from .services.sheets_instance import sheets_adapter
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,12 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        # Production frontend origin -- needed if the deployed API_BASE the
+        # browser calls is genuinely cross-origin from the Next.js app
+        # (e.g. no nginx same-origin path proxy in front of both). Harmless
+        # if nginx does proxy them under one origin; this entry just goes
+        # unused in that case.
+        "https://frictiongenlead.friction.com.my",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -84,6 +90,7 @@ app.include_router(discovery.router)
 app.include_router(import_router.router)
 app.include_router(chat.router)
 app.include_router(operations.router)
+app.include_router(data.router)
 
 
 # ---------------------------------------------------------------------------

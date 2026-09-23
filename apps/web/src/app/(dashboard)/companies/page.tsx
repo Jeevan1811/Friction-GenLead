@@ -1,22 +1,21 @@
 "use client";
 
-import { useState, useMemo, type CSSProperties } from "react";
+import { useState, useMemo, useEffect, type CSSProperties } from "react";
 import { Search, ChevronDown, ChevronUp, ArrowUpDown, Loader2 } from "lucide-react";
-import {
-  companies as initialCompanies,
-  locations,
-  contacts,
-  getBestContact,
-  getLocationForCompany,
-  type Company,
-  type Contact,
-  type Location,
-} from "@/lib/fixtures";
+import type { Company, Contact, Location } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DetailDrawer } from "@/components/shared/detail-drawer";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import { verifyCompany, verifyLocation, verifyContact } from "@/lib/api";
+import {
+  verifyCompany,
+  verifyLocation,
+  verifyContact,
+  getCompanies,
+  getLocations,
+  getContacts,
+} from "@/lib/api";
+import { PageLoading, PageError } from "@/components/shared/page-status";
 
 type Tab = "all" | "new" | "review" | "approved" | "stale" | "no-contact" | "rejected";
 
@@ -48,20 +47,6 @@ function compactBtnStyle(variant: "primary" | "secondary"): CSSProperties {
   };
 }
 
-const tabs: { key: Tab; label: string; filter: (c: Company) => boolean }[] = [
-  { key: "all", label: "All", filter: () => true },
-  { key: "new", label: "New", filter: (c) => c.status === "NEW" },
-  { key: "review", label: "Needs Review", filter: (c) => c.status === "REVIEW" || c.status === "VERIFYING" },
-  { key: "approved", label: "Approved", filter: (c) => c.status === "APPROVED" },
-  { key: "stale", label: "Stale", filter: (c) => c.status === "STALE" },
-  {
-    key: "no-contact",
-    label: "No Contact",
-    filter: (c) => contacts.filter((ct) => ct.companyId === c.companyId).length === 0,
-  },
-  { key: "rejected", label: "Rejected", filter: (c) => c.status === "REJECTED" },
-];
-
 type SortKey = "companyName" | "status" | "postcode";
 
 export default function CompaniesPage() {
@@ -70,9 +55,11 @@ export default function CompaniesPage() {
   const [sortKey, setSortKey] = useState<SortKey>("companyName");
   const [sortAsc, setSortAsc] = useState(true);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
-  const [companies, setCompanies] = useState<Company[]>(initialCompanies);
-  const [locationsState, setLocationsState] = useState<Location[]>(locations);
-  const [contactsState, setContactsState] = useState<Contact[]>(contacts);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [locationsState, setLocationsState] = useState<Location[]>([]);
+  const [contactsState, setContactsState] = useState<Contact[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   // Per-card loading, keyed "loc:<id>" / "ct:<id>", for the direct-approve
   // buttons on individual location/contact cards (no dialog involved, so
@@ -84,6 +71,59 @@ export default function CompaniesPage() {
   const [rejectTarget, setRejectTarget] = useState<RejectTarget | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const { toast } = useToast();
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const [companiesData, locationsData, contactsData] = await Promise.all([
+          getCompanies(),
+          getLocations(),
+          getContacts(),
+        ]);
+        if (cancelled) return;
+        setCompanies(companiesData);
+        setLocationsState(locationsData);
+        setContactsState(contactsData);
+      } catch (err) {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : "Failed to load companies");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Local replacements for the old fixture-module helpers `getBestContact`
+  // / `getLocationForCompany`, which operated on the (now-removed) static
+  // fixture arrays -- these operate on live fetched state instead.
+  const getBestContact = (companyId: string): Contact | undefined => {
+    const companyContacts = contactsState.filter((c) => c.companyId === companyId);
+    return companyContacts.find((c) => c.rolePriority === "PRIORITY") ?? companyContacts[0];
+  };
+
+  const getLocationForCompany = (companyId: string): Location | undefined =>
+    locationsState.find((l) => l.companyId === companyId);
+
+  const tabs: { key: Tab; label: string; filter: (c: Company) => boolean }[] = [
+    { key: "all", label: "All", filter: () => true },
+    { key: "new", label: "New", filter: (c) => c.status === "NEW" },
+    { key: "review", label: "Needs Review", filter: (c) => c.status === "REVIEW" || c.status === "VERIFYING" },
+    { key: "approved", label: "Approved", filter: (c) => c.status === "APPROVED" },
+    { key: "stale", label: "Stale", filter: (c) => c.status === "STALE" },
+    {
+      key: "no-contact",
+      label: "No Contact",
+      filter: (c) => contactsState.filter((ct) => ct.companyId === c.companyId).length === 0,
+    },
+    { key: "rejected", label: "Rejected", filter: (c) => c.status === "REJECTED" },
+  ];
 
   const tabDef = tabs.find((t) => t.key === activeTab)!;
 
@@ -110,7 +150,7 @@ export default function CompaniesPage() {
       return sortAsc ? cmp : -cmp;
     });
     return result;
-  }, [activeTab, searchQuery, sortKey, sortAsc, tabDef, companies]);
+  }, [activeTab, searchQuery, sortKey, sortAsc, tabDef, companies, locationsState]);
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) setSortAsc(!sortAsc);
@@ -150,6 +190,16 @@ export default function CompaniesPage() {
         </p>
       </div>
 
+      {loadError && (
+        <div style={{ marginBottom: "16px" }}>
+          <PageError message={loadError} />
+        </div>
+      )}
+
+      {loading ? (
+        <PageLoading label="Loading companies..." />
+      ) : (
+      <>
       {/* Tabs */}
       <div
         style={{
@@ -861,6 +911,8 @@ export default function CompaniesPage() {
           }
         }}
       />
+      </>
+      )}
     </div>
   );
 }

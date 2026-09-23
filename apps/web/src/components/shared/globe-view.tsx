@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MapPin } from "lucide-react";
-import type { Location } from "@/lib/fixtures";
+import type { Location } from "@/lib/types";
 // Cesium touches `window`/`document` at module load time, so it must never be
 // statically imported (that would break server-side rendering in Next.js).
 // The CSS import is safe statically — stylesheets have no window/document dependency.

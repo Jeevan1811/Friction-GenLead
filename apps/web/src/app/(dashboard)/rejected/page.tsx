@@ -1,7 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { XCircle, RotateCcw, Building2, MapPin, Users } from "lucide-react";
-import { rejectedEntities } from "@/lib/fixtures";
+import { getRejected } from "@/lib/api";
+import type { RejectedEntity } from "@/lib/types";
+import { PageLoading, PageError } from "@/components/shared/page-status";
 
 const entityTypeIcons: Record<string, typeof Building2> = {
   company: Building2,
@@ -16,6 +19,32 @@ const entityTypeLabels: Record<string, string> = {
 };
 
 export default function RejectedPage() {
+  const [rejectedEntities, setRejectedEntities] = useState<RejectedEntity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getRejected();
+        if (!cancelled) setRejectedEntities(data);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load rejected entities");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleDateString("en-AU", {
@@ -48,7 +77,15 @@ export default function RejectedPage() {
         </p>
       </div>
 
-      {orderedGroups.length === 0 ? (
+      {error && (
+        <div style={{ marginBottom: "16px" }}>
+          <PageError message={error} />
+        </div>
+      )}
+
+      {loading ? (
+        <PageLoading label="Loading rejected entities..." />
+      ) : orderedGroups.length === 0 ? (
         <div
           className="surface-card"
           style={{

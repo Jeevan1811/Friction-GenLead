@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Building2, Users, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
-import { searchRuns } from "@/lib/fixtures";
+import { getJobs } from "@/lib/api";
+import type { JobRun } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { PageLoading, PageError } from "@/components/shared/page-status";
 
 const statusConfig: Record<
   string,
@@ -15,6 +18,32 @@ const statusConfig: Record<
 };
 
 export default function SearchesPage() {
+  const [searchRuns, setSearchRuns] = useState<JobRun[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getJobs();
+        if (!cancelled) setSearchRuns(data);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load search history");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleDateString("en-AU", {
@@ -24,15 +53,6 @@ export default function SearchesPage() {
       hour: "2-digit",
       minute: "2-digit",
     });
-  };
-
-  const formatDuration = (start: string, end?: string) => {
-    if (!end) return "In progress...";
-    const ms = new Date(end).getTime() - new Date(start).getTime();
-    const mins = Math.floor(ms / 60000);
-    const secs = Math.floor((ms % 60000) / 1000);
-    if (mins === 0) return `${secs}s`;
-    return `${mins}m ${secs}s`;
   };
 
   return (
@@ -46,7 +66,15 @@ export default function SearchesPage() {
         </p>
       </div>
 
-      {searchRuns.length === 0 ? (
+      {error && (
+        <div style={{ marginBottom: "16px" }}>
+          <PageError message={error} />
+        </div>
+      )}
+
+      {loading ? (
+        <PageLoading label="Loading search history..." />
+      ) : searchRuns.length === 0 ? (
         <div
           className="surface-card"
           style={{ padding: "48px 24px", textAlign: "center" }}
@@ -65,7 +93,7 @@ export default function SearchesPage() {
 
             return (
               <div
-                key={run.searchId}
+                key={run.jobId}
                 className="surface-card"
                 style={{
                   padding: "20px",
@@ -139,27 +167,7 @@ export default function SearchesPage() {
                     </div>
 
                     <div style={{ fontSize: "12px", color: "var(--color-text-muted)", marginBottom: "8px" }}>
-                      Started {formatDate(run.startedAt)}
-                      {" · "}
-                      {formatDuration(run.startedAt, run.completedAt)}
-                    </div>
-
-                    {/* Roles */}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "8px" }}>
-                      {run.roles.map((role) => (
-                        <span
-                          key={role}
-                          style={{
-                            fontSize: "11px",
-                            padding: "2px 8px",
-                            borderRadius: "var(--radius-pill)",
-                            border: "1px solid var(--color-border)",
-                            color: "var(--color-text-secondary)",
-                          }}
-                        >
-                          {role}
-                        </span>
-                      ))}
+                      Started {formatDate(run.createdAt)}
                     </div>
 
                     {/* Results */}

@@ -307,9 +307,14 @@ span a {
 }
 
 /* ---------- Page transition ---------- */
+/* Opacity only, deliberately. With `animation-fill-mode: both`, a `transform`
+   here stays applied after the animation ends, and a transformed ancestor
+   becomes the containing block for `position: fixed` descendants -- which
+   made the detail drawer and confirm dialogs size themselves to the page
+   content instead of the viewport (e.g. cut off after a search). */
 @keyframes page-fade-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .page-transition {
   animation: page-fade-in 220ms cubic-bezier(0.4, 0, 0.2, 1) both;

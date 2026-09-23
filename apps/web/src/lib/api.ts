@@ -169,11 +169,12 @@ export async function verifyContact(
 }
 
 export async function sendChatMessage(
-  messages: Array<{ role: string; content: string }>
+  messages: Array<{ role: string; content: string }>,
+  context?: { page?: string }
 ) {
   return apiPost<{ response: string; model: string }>(
     "/internal/chat",
-    { messages, stream: false }
+    { messages, context: context ?? null, stream: false }
   );
 }
 

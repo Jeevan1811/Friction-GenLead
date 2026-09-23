@@ -66,6 +66,22 @@ SYSTEM_OWNED_FIELDS: frozenset[str] = frozenset({
 
 # Everything not in USER_OWNED or SYSTEM_OWNED is SHARED (last-write-wins).
 
+def _merge_rows(existing: dict[str, Any] | None, incoming: dict[str, Any]) -> dict[str, Any]:
+    """Overlay ``incoming`` on ``existing`` -- only non-empty incoming values
+    replace existing ones, and user-owned fields always keep the existing value."""
+    if not existing:
+        return incoming
+    merged = dict(existing)
+    for key, value in incoming.items():
+        if value is None or value == "":
+            continue
+        merged[key] = value
+    for fld in USER_OWNED_FIELDS:
+        if existing.get(fld):
+            merged[fld] = existing[fld]
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # Sync-log entry
 # ---------------------------------------------------------------------------
@@ -514,11 +530,7 @@ class GoogleSheetsAdapter:
         try:
             if self._mock_mode:
                 existing = self._companies.get(company_id)
-                if existing:
-                    # Preserve user-owned fields.
-                    for fld in USER_OWNED_FIELDS:
-                        if fld in existing:
-                            company[fld] = existing[fld]
+                company = _merge_rows(existing, company)
 
                 now = datetime.now(timezone.utc).isoformat()
                 company["last_modified"] = now
@@ -561,6 +573,7 @@ class GoogleSheetsAdapter:
         try:
             if self._mock_mode:
                 existing = self._locations.get(location_id)
+                location = _merge_rows(existing, location)
                 now = datetime.now(timezone.utc).isoformat()
                 location["last_modified"] = now
                 self._locations[location_id] = location
@@ -600,10 +613,7 @@ class GoogleSheetsAdapter:
         try:
             if self._mock_mode:
                 existing = self._contacts.get(contact_id)
-                if existing:
-                    for fld in USER_OWNED_FIELDS:
-                        if fld in existing:
-                            contact[fld] = existing[fld]
+                contact = _merge_rows(existing, contact)
 
                 now = datetime.now(timezone.utc).isoformat()
                 contact["last_modified"] = now
@@ -902,14 +912,21 @@ class GoogleSheetsAdapter:
                     row_values.append(str(val) if val is not None else "")
 
                 if existing_row_num:
-                    # Preserve user-owned fields from the existing row.
+                    # Merge into the existing row instead of replacing it:
+                    # a caller (e.g. an approve/reject decision) only knows a
+                    # handful of fields, and every column it doesn't supply
+                    # used to be written back as blank -- silently wiping
+                    # the rest of the record in the Sheet. A field only
+                    # changes when the caller actually supplies a value for
+                    # it; user-owned fields always keep their existing value.
                     existing_data = await self._read_row(tab_name, existing_row_num, columns)
-                    for fld in USER_OWNED_FIELDS:
-                        if fld in columns:
-                            col_idx = columns.index(fld)
-                            existing_val = existing_data.get(fld)
-                            if existing_val:
-                                row_values[col_idx] = str(existing_val)
+                    for col_idx, col in enumerate(columns):
+                        existing_val = existing_data.get(col)
+                        if not existing_val:
+                            continue
+                        supplied = row_data.get(col)
+                        if col in USER_OWNED_FIELDS or supplied is None or supplied == "":
+                            row_values[col_idx] = str(existing_val)
 
                     # Update existing row.
                     row_range = f"{tab_name}!A{existing_row_num}"

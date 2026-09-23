@@ -327,6 +327,18 @@ async def _persist_company_decision(
             "notes": request.reason or "",
         }
         result = await sheets_adapter.upsert_company(row)
+        if request.action == "reject":
+            # Log to the Rejected tab too, so it appears on the Rejected
+            # page (a status change alone never shows up there).
+            rejection = await sheets_adapter.add_rejection(
+                entity_type="company",
+                entity_id=request.company_id,
+                entity_name=request.company_name or "",
+                reason=request.reason or "Rejected by user.",
+                original_data=row,
+            )
+            if rejection != SyncState.SYNCED:
+                result = rejection
         status_info = await sheets_adapter.get_sync_status()
         if status_info.get("mode") != "live":
             # Not actually connected to a real spreadsheet (mock mode).
@@ -451,6 +463,18 @@ async def _persist_location_decision(
             "last_verified": now,
         }
         result = await sheets_adapter.upsert_location(row)
+        if request.action == "reject":
+            # Log to the Rejected tab too, so it appears on the Rejected
+            # page (a status change alone never shows up there).
+            rejection = await sheets_adapter.add_rejection(
+                entity_type="location",
+                entity_id=request.location_id,
+                entity_name=request.site_name or "",
+                reason=request.reason or "Rejected by user.",
+                original_data=row,
+            )
+            if rejection != SyncState.SYNCED:
+                result = rejection
         status_info = await sheets_adapter.get_sync_status()
         if status_info.get("mode") != "live":
             # Not actually connected to a real spreadsheet (mock mode).
@@ -556,6 +580,18 @@ async def _persist_contact_decision(
             "last_verified": now,
         }
         result = await sheets_adapter.upsert_contact(row)
+        if request.action == "reject":
+            # Log to the Rejected tab too, so it appears on the Rejected
+            # page (a status change alone never shows up there).
+            rejection = await sheets_adapter.add_rejection(
+                entity_type="contact",
+                entity_id=request.contact_id,
+                entity_name=request.name or "",
+                reason=request.reason or "Rejected by user.",
+                original_data=row,
+            )
+            if rejection != SyncState.SYNCED:
+                result = rejection
         status_info = await sheets_adapter.get_sync_status()
         if status_info.get("mode") != "live":
             # Not actually connected to a real spreadsheet (mock mode).

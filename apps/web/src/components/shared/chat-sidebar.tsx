@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { usePathname } from "next/navigation";
 import { MessageCircle, X, Send, Bot, Loader2 } from "lucide-react";
 import { sendChatMessage } from "@/lib/api";
+import { ChatRichText } from "@/components/shared/chat-rich-text";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -11,7 +13,15 @@ interface ChatMessage {
 
 const STORAGE_KEY = "genlead-chat-messages";
 const GREETING =
-  "Hi! I'm your GenLead assistant. Ask me about your prospects, pipeline status, or what to do next.";
+  "Hi! I'm the GenLead assistant. Ask me how to do anything in the app, what something means, or about your companies, contacts and locations.";
+
+const SUGGESTIONS = [
+  "How do I approve a company?",
+  "How do I find a company?",
+  "What do the statuses mean?",
+  "How does the Google Sheet sync work?",
+  "How many companies are in my data?",
+];
 
 function loadMessages(): ChatMessage[] {
   try {
@@ -32,6 +42,7 @@ function saveMessages(msgs: ChatMessage[]) {
 }
 
 export function ChatSidebar() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages());
   const [input, setInput] = useState("");
@@ -55,38 +66,44 @@ export function ChatSidebar() {
     saveMessages(messages);
   }, [messages]);
 
-  const handleSend = useCallback(async () => {
-    const text = input.trim();
-    if (!text || loading) return;
+  const send = useCallback(
+    async (raw: string) => {
+      const text = raw.trim();
+      if (!text || loading) return;
 
-    const userMsg: ChatMessage = { role: "user", content: text };
-    const next = [...messages, userMsg];
-    setMessages(next);
-    setInput("");
-    setLoading(true);
+      const userMsg: ChatMessage = { role: "user", content: text };
+      const next = [...messages, userMsg];
+      setMessages(next);
+      setInput("");
+      setLoading(true);
 
-    try {
-      const res = await sendChatMessage(
-        next.map((m) => ({ role: m.role, content: m.content }))
-      );
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: res.response },
-      ]);
-    } catch (err) {
-      const errMsg =
-        err instanceof Error ? err.message : "Something went wrong";
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `Sorry, I couldn't process that. ${errMsg}`,
-        },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  }, [input, loading, messages]);
+      try {
+        const res = await sendChatMessage(
+          next.map((m) => ({ role: m.role, content: m.content })),
+          { page: pathname }
+        );
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: res.response },
+        ]);
+      } catch (err) {
+        const errMsg =
+          err instanceof Error ? err.message : "Something went wrong";
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: `Sorry, I couldn't process that. ${errMsg}`,
+          },
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loading, messages, pathname]
+  );
+
+  const handleSend = useCallback(() => send(input), [send, input]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -258,14 +275,45 @@ export function ChatSidebar() {
                       : "var(--color-text)",
                   fontSize: "13px",
                   lineHeight: 1.5,
-                  whiteSpace: "pre-wrap",
+                  whiteSpace: msg.role === "user" ? "pre-wrap" : "normal",
                   wordBreak: "break-word",
                 }}
               >
-                {msg.content}
+                {msg.role === "assistant" ? (
+                  <ChatRichText content={msg.content} />
+                ) : (
+                  msg.content
+                )}
               </div>
             </div>
           ))}
+
+          {/* Starter questions */}
+          {messages.length === 1 && !loading && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-start" }}>
+              {SUGGESTIONS.map((q) => (
+                <button
+                  key={q}
+                  onClick={() => send(q)}
+                  style={{
+                    textAlign: "left",
+                    padding: "7px 12px",
+                    fontSize: "12px",
+                    lineHeight: 1.4,
+                    borderRadius: "var(--radius-pill)",
+                    border: "1px solid var(--color-border)",
+                    background: "transparent",
+                    color: "var(--color-accent)",
+                    cursor: "pointer",
+                    minHeight: 0,
+                    minWidth: 0,
+                  }}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Typing indicator */}
           {loading && (

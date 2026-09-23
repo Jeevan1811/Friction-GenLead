@@ -84,7 +84,6 @@ function Shot({ id }: { id: string }) {
         <img
           src={src}
           alt={SHOT_CAPTIONS[id] ?? "Screenshot"}
-          loading="lazy"
           onError={() => setFailed(true)}
           style={{
             width: "100%",

@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Never log `code` or `pendingToken`.
-  const result = verifyPendingOtp(pendingToken, code);
+  const result = verifyPendingOtp(pendingToken, code, "login");
 
   if (!result.ok) {
     const status = result.reason === "invalid_code" ? 401 : 400;

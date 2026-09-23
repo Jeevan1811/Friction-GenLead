@@ -9,6 +9,7 @@ import {
 import { createPendingSession } from "@/lib/auth/otp-store";
 import { sendOtpEmail } from "@/lib/auth/mailer";
 import { getClientIp } from "@/lib/auth/client-ip";
+import { getPasswordHash } from "@/lib/auth/credential-store";
 
 // bcryptjs and nodemailer both need the Node runtime, not Edge.
 export const runtime = "nodejs";
@@ -48,7 +49,18 @@ export async function POST(req: NextRequest) {
   }
 
   const expectedEmail = requireEnv("AUTH_EMAIL");
-  const expectedHash = requireEnv("AUTH_PASSWORD_HASH");
+  const expectedHash = getPasswordHash();
+
+  if (!expectedHash) {
+    // No password has ever been set for this account yet — there is
+    // nothing to compare against. Don't count this as a failed attempt
+    // (it isn't a guess, it's a state the account is legitimately in);
+    // send them to the setup flow instead.
+    return NextResponse.json(
+      { error: "No password set up yet. Use \"Set up your password\" to continue.", passwordNotSet: true },
+      { status: 409 }
+    );
+  }
 
   const emailMatches = email.toLowerCase() === expectedEmail.toLowerCase();
   // Run bcrypt.compare unconditionally (not short-circuited by emailMatches)

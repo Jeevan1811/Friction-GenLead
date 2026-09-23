@@ -2,29 +2,67 @@
 
 import { useState, useRef, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, Mail, ShieldCheck, Loader2, ArrowLeft } from "lucide-react";
+import { Lock, Mail, ShieldCheck, Loader2, ArrowLeft, KeyRound } from "lucide-react";
 
-type Step = "credentials" | "otp";
+type Step = "checking" | "credentials" | "otp" | "reset-request" | "reset-confirm";
+type ResetMode = "setup" | "forgot";
 
 export default function LoginPage() {
   const router = useRouter();
 
-  const [step, setStep] = useState<Step>("credentials");
+  const [step, setStep] = useState<Step>("checking");
+  const [resetMode, setResetMode] = useState<ResetMode>("forgot");
+
+  // Normal login state
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [pendingToken, setPendingToken] = useState("");
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [maskedEmail, setMaskedEmail] = useState("");
 
+  // Setup / forgot-password state
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetPendingToken, setResetPendingToken] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [resetMaskedEmail, setResetMaskedEmail] = useState("");
+
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
   const codeInputRef = useRef<HTMLInputElement>(null);
+  const resetCodeInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (step === "otp") {
-      codeInputRef.current?.focus();
-    }
+    if (step === "otp") codeInputRef.current?.focus();
+    if (step === "reset-confirm") resetCodeInputRef.current?.focus();
   }, [step]);
+
+  // On load, find out whether a password has ever been set for this
+  // account. If not, skip straight to the "set up your password" flow —
+  // there is nothing to log in with yet.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/password/status");
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.passwordSet === false) {
+          setResetMode("setup");
+          setStep("reset-request");
+        } else {
+          setStep("credentials");
+        }
+      } catch {
+        if (!cancelled) setStep("credentials");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleCredentialsSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -39,6 +77,12 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok) {
+        if (data.passwordNotSet) {
+          setResetEmail(email);
+          setResetMode("setup");
+          setStep("reset-request");
+          return;
+        }
         setError(data.error || "Invalid email or password");
         return;
       }
@@ -66,11 +110,7 @@ export default function LoginPage() {
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Incorrect code.");
-        if (
-          data.error?.includes("expired") ||
-          data.error?.includes("Too many")
-        ) {
-          // Force a fresh login rather than letting them keep guessing.
+        if (data.error?.includes("expired") || data.error?.includes("Too many")) {
           setStep("credentials");
           setPassword("");
           setCode("");
@@ -85,6 +125,87 @@ export default function LoginPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleResetRequestSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (submitting) return;
+    setError("");
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/auth/password/request-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: resetEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Could not send the code.");
+        return;
+      }
+      setResetPendingToken(data.pendingToken);
+      setResetMaskedEmail(maskEmail(resetEmail));
+      setNewPassword("");
+      setConfirmPassword("");
+      setResetCode("");
+      setStep("reset-confirm");
+    } catch {
+      setError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleResetConfirmSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (submitting) return;
+    setError("");
+
+    if (newPassword.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Passwords don't match.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/auth/password/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pendingToken: resetPendingToken, code: resetCode, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Could not reset the password.");
+        if (data.error?.includes("expired") || data.error?.includes("Too many")) {
+          setStep("reset-request");
+          setResetPendingToken("");
+          setResetCode("");
+        }
+        return;
+      }
+      router.push("/search");
+      router.refresh();
+    } catch {
+      setError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const stepSubtitle: Record<Step, string> = {
+    checking: "",
+    credentials: "Sign in to continue",
+    otp: "Enter the code we emailed you",
+    "reset-request":
+      resetMode === "setup"
+        ? "Let's set up your password"
+        : "Reset your password",
+    "reset-confirm":
+      resetMode === "setup" ? "Set your password" : "Choose a new password",
   };
 
   return (
@@ -133,14 +254,18 @@ export default function LoginPage() {
               marginTop: "4px",
             }}
           >
-            {step === "credentials"
-              ? "Sign in to continue"
-              : "Enter the code we emailed you"}
+            {stepSubtitle[step]}
           </p>
         </div>
 
         <div className="surface-card" style={{ padding: "28px" }}>
-          {step === "credentials" ? (
+          {step === "checking" && (
+            <div style={{ display: "flex", justifyContent: "center", padding: "12px" }}>
+              <Loader2 size={20} style={{ animation: "spin 1s linear infinite" }} />
+            </div>
+          )}
+
+          {step === "credentials" && (
             <form
               onSubmit={handleCredentialsSubmit}
               style={{ display: "flex", flexDirection: "column", gap: "16px" }}
@@ -175,9 +300,30 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label htmlFor="password" className="text-label" style={{ display: "block", marginBottom: "6px" }}>
-                  Password
-                </label>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "6px" }}>
+                  <label htmlFor="password" className="text-label">
+                    Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError("");
+                      setResetEmail(email);
+                      setResetMode("forgot");
+                      setStep("reset-request");
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      fontSize: "12px",
+                      color: "var(--color-accent)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
                 <div style={{ position: "relative" }}>
                   <Lock
                     size={16}
@@ -219,7 +365,9 @@ export default function LoginPage() {
                 {submitting ? "Signing in..." : "Continue"}
               </button>
             </form>
-          ) : (
+          )}
+
+          {step === "otp" && (
             <form
               onSubmit={handleOtpSubmit}
               style={{ display: "flex", flexDirection: "column", gap: "16px" }}
@@ -255,11 +403,7 @@ export default function LoginPage() {
                     value={code}
                     onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                     className="input-field"
-                    style={{
-                      paddingLeft: "38px",
-                      letterSpacing: "4px",
-                      fontFamily: "var(--font-mono)",
-                    }}
+                    style={{ paddingLeft: "38px", letterSpacing: "4px", fontFamily: "var(--font-mono)" }}
                     placeholder="000000"
                   />
                 </div>
@@ -286,6 +430,217 @@ export default function LoginPage() {
                 onClick={() => {
                   setStep("credentials");
                   setCode("");
+                  setError("");
+                }}
+                className="btn-secondary"
+                style={{ width: "100%" }}
+              >
+                <ArrowLeft size={14} />
+                Back
+              </button>
+            </form>
+          )}
+
+          {step === "reset-request" && (
+            <form
+              onSubmit={handleResetRequestSubmit}
+              style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+            >
+              <p style={{ fontSize: "13px", color: "var(--color-text-secondary)" }}>
+                {resetMode === "setup"
+                  ? "This account doesn't have a password yet. Enter your email and we'll send a code to set one up."
+                  : "Enter your email and we'll send a code to reset your password."}
+              </p>
+
+              <div>
+                <label htmlFor="reset-email" className="text-label" style={{ display: "block", marginBottom: "6px" }}>
+                  Email
+                </label>
+                <div style={{ position: "relative" }}>
+                  <Mail
+                    size={16}
+                    style={{
+                      position: "absolute",
+                      left: "12px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      color: "var(--color-text-muted)",
+                    }}
+                  />
+                  <input
+                    id="reset-email"
+                    type="email"
+                    autoComplete="username"
+                    required
+                    value={resetEmail}
+                    onChange={(e) => setResetEmail(e.target.value)}
+                    className="input-field"
+                    style={{ paddingLeft: "38px" }}
+                    placeholder="you@company.com"
+                  />
+                </div>
+              </div>
+
+              {error && <ErrorMessage text={error} />}
+
+              <button
+                type="submit"
+                disabled={submitting || !resetEmail}
+                className="btn-primary"
+                style={{ width: "100%", marginTop: "4px" }}
+              >
+                {submitting ? (
+                  <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
+                ) : (
+                  <KeyRound size={16} />
+                )}
+                {submitting ? "Sending..." : "Send code"}
+              </button>
+
+              {resetMode === "forgot" && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep("credentials");
+                    setError("");
+                  }}
+                  className="btn-secondary"
+                  style={{ width: "100%" }}
+                >
+                  <ArrowLeft size={14} />
+                  Back to sign in
+                </button>
+              )}
+            </form>
+          )}
+
+          {step === "reset-confirm" && (
+            <form
+              onSubmit={handleResetConfirmSubmit}
+              style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+            >
+              <p style={{ fontSize: "13px", color: "var(--color-text-secondary)" }}>
+                We sent a 6-digit code to <strong style={{ color: "var(--color-text)" }}>{resetMaskedEmail}</strong>.
+                It expires in 5 minutes.
+              </p>
+
+              <div>
+                <label htmlFor="reset-code" className="text-label" style={{ display: "block", marginBottom: "6px" }}>
+                  Verification code
+                </label>
+                <div style={{ position: "relative" }}>
+                  <ShieldCheck
+                    size={16}
+                    style={{
+                      position: "absolute",
+                      left: "12px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      color: "var(--color-text-muted)",
+                    }}
+                  />
+                  <input
+                    ref={resetCodeInputRef}
+                    id="reset-code"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    required
+                    value={resetCode}
+                    onChange={(e) => setResetCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="input-field"
+                    style={{ paddingLeft: "38px", letterSpacing: "4px", fontFamily: "var(--font-mono)" }}
+                    placeholder="000000"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="new-password" className="text-label" style={{ display: "block", marginBottom: "6px" }}>
+                  New password
+                </label>
+                <div style={{ position: "relative" }}>
+                  <Lock
+                    size={16}
+                    style={{
+                      position: "absolute",
+                      left: "12px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      color: "var(--color-text-muted)",
+                    }}
+                  />
+                  <input
+                    id="new-password"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                    minLength={8}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="input-field"
+                    style={{ paddingLeft: "38px" }}
+                    placeholder="At least 8 characters"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="confirm-password" className="text-label" style={{ display: "block", marginBottom: "6px" }}>
+                  Confirm password
+                </label>
+                <div style={{ position: "relative" }}>
+                  <Lock
+                    size={16}
+                    style={{
+                      position: "absolute",
+                      left: "12px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      color: "var(--color-text-muted)",
+                    }}
+                  />
+                  <input
+                    id="confirm-password"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                    minLength={8}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="input-field"
+                    style={{ paddingLeft: "38px" }}
+                    placeholder="Re-enter password"
+                  />
+                </div>
+              </div>
+
+              {error && <ErrorMessage text={error} />}
+
+              <button
+                type="submit"
+                disabled={submitting || resetCode.length !== 6 || !newPassword || !confirmPassword}
+                className="btn-primary"
+                style={{ width: "100%", marginTop: "4px" }}
+              >
+                {submitting ? (
+                  <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
+                ) : (
+                  <ShieldCheck size={16} />
+                )}
+                {submitting
+                  ? "Saving..."
+                  : resetMode === "setup"
+                    ? "Set password & sign in"
+                    : "Reset password & sign in"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("reset-request");
+                  setResetCode("");
                   setError("");
                 }}
                 className="btn-secondary"

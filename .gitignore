@@ -44,5 +44,8 @@ oauth_token.json
 # Migration output
 migration_output.json
 
+# Self-service account credential store (bcrypt hash only, but still not for git)
+apps/web/data/auth-credentials.json
+
 # Real client source data staged for migration -- never commit
 scripts/migrate-legacy/data/

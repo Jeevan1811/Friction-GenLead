@@ -4,7 +4,7 @@
  *
  * We use it to fail loudly and immediately if the auth env vars are
  * missing, rather than letting the app boot into a broken or insecure
- * state (e.g. an empty AUTH_PASSWORD_HASH silently allowing any password).
+ * state (e.g. an empty AUTH_JWT_SECRET silently accepting any signature).
  * See apps/web/src/lib/auth/env.ts.
  */
 export async function register() {

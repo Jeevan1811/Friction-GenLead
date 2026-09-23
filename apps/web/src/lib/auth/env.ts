@@ -2,17 +2,22 @@
  * Required-environment-variable helpers for the auth system.
  *
  * This is a single-account system configured entirely via env vars. There
- * is no safe default for any of these — an empty JWT secret or an unset
- * password hash would be a real backdoor — so every accessor throws loudly
- * the moment it's used rather than silently falling back to something
- * insecure. `apps/web/src/instrumentation.ts` also calls `assertAuthEnv()`
- * once at process startup so a misconfigured deploy fails immediately
- * instead of on the first request.
+ * is no safe default for any of these — an empty JWT secret would be a
+ * real backdoor — so every accessor throws loudly the moment it's used
+ * rather than silently falling back to something insecure.
+ * `apps/web/src/instrumentation.ts` also calls `assertAuthEnv()` once at
+ * process startup so a misconfigured deploy fails immediately instead of
+ * on the first request.
+ *
+ * AUTH_PASSWORD_HASH is deliberately NOT in this required list anymore --
+ * the password hash moved to the mutable credential-store.ts (so the
+ * account owner can set/reset it themselves without a redeploy). A fresh
+ * deploy legitimately starts with no password set yet, which the account
+ * owner resolves via the first-login "set your password" flow.
  */
 
 const REQUIRED_AUTH_VARS = [
   "AUTH_EMAIL",
-  "AUTH_PASSWORD_HASH",
   "AUTH_JWT_SECRET",
 ] as const;
 

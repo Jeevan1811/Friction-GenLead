@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { requireEnv } from "@/lib/auth/env";
+import { matchAllowedEmail } from "@/lib/auth/env";
 import {
   checkRateLimit,
   recordFailedAttempt,
@@ -13,6 +13,13 @@ import { getPasswordHash } from "@/lib/auth/credential-store";
 
 // bcryptjs and nodemailer both need the Node runtime, not Edge.
 export const runtime = "nodejs";
+
+// A fixed, valid bcrypt hash with no real password behind it. bcrypt.compare
+// always runs against SOME hash below (this one when the email isn't on the
+// allowlist at all) so that "unknown email" and "known email, wrong
+// password" take roughly the same time -- otherwise the response latency
+// itself would let someone enumerate which emails are real accounts.
+const DUMMY_HASH_FOR_TIMING = "$2b$12$qurOFQv2PjP.ffw.Upa9xOhL5OEa2IOmKXe3RMt.aINjwypIKpq2i";
 
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
@@ -48,27 +55,28 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const expectedEmail = requireEnv("AUTH_EMAIL");
-  const expectedHash = getPasswordHash();
+  const matchedEmail = matchAllowedEmail(email);
+  const expectedHash = matchedEmail ? getPasswordHash(matchedEmail) : null;
 
-  if (!expectedHash) {
-    // No password has ever been set for this account yet — there is
-    // nothing to compare against. Don't count this as a failed attempt
-    // (it isn't a guess, it's a state the account is legitimately in);
-    // send them to the setup flow instead.
+  if (matchedEmail && !expectedHash) {
+    // A real allowlisted account, but no password has ever been set for
+    // it yet — there is nothing to compare against. Don't count this as a
+    // failed attempt (it isn't a guess, it's a state the account is
+    // legitimately in); send them to the setup flow instead.
     return NextResponse.json(
       { error: "No password set up yet. Use \"Set up your password\" to continue.", passwordNotSet: true },
       { status: 409 }
     );
   }
 
-  const emailMatches = email.toLowerCase() === expectedEmail.toLowerCase();
-  // Run bcrypt.compare unconditionally (not short-circuited by emailMatches)
-  // so a wrong email vs. a wrong password take roughly the same time and
-  // the response can't be used to probe which field was wrong.
-  const passwordMatches = await bcrypt.compare(password, expectedHash);
+  // Run bcrypt.compare unconditionally, against the real hash when the
+  // email is a known account with a password set, or a fixed dummy hash
+  // otherwise (unknown email) — so an unrecognized email, a recognized
+  // email with the wrong password, all take roughly the same time and the
+  // response can't be used to enumerate which emails are real accounts.
+  const passwordMatches = await bcrypt.compare(password, expectedHash ?? DUMMY_HASH_FOR_TIMING);
 
-  if (!emailMatches || !passwordMatches) {
+  if (!matchedEmail || !passwordMatches) {
     recordFailedAttempt(ip);
     return NextResponse.json(
       { error: "Invalid email or password" },
@@ -78,10 +86,10 @@ export async function POST(req: NextRequest) {
 
   resetRateLimit(ip);
 
-  const { token, otp } = createPendingSession(expectedEmail);
+  const { token, otp } = createPendingSession(matchedEmail);
 
   try {
-    await sendOtpEmail(expectedEmail, otp);
+    await sendOtpEmail(matchedEmail, otp);
   } catch (err) {
     console.error(
       "[auth] Failed to send OTP email:",

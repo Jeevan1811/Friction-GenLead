@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireEnv } from "@/lib/auth/env";
+import { matchAllowedEmail } from "@/lib/auth/env";
 import {
   checkRateLimit,
   recordFailedAttempt,
@@ -43,19 +43,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Enter your email." }, { status: 400 });
   }
 
-  const expectedEmail = requireEnv("AUTH_EMAIL");
-  if (email.toLowerCase() !== expectedEmail.toLowerCase()) {
+  const matchedEmail = matchAllowedEmail(email);
+  if (!matchedEmail) {
     recordFailedAttempt(ip);
     return NextResponse.json({ error: "Invalid email." }, { status: 400 });
   }
 
   resetRateLimit(ip);
 
-  const isFirstSetup = !isPasswordSet();
-  const { token, otp } = createPendingSession(expectedEmail, "password-reset");
+  const isFirstSetup = !isPasswordSet(matchedEmail);
+  const { token, otp } = createPendingSession(matchedEmail, "password-reset");
 
   try {
-    await sendPasswordResetEmail(expectedEmail, otp, isFirstSetup);
+    await sendPasswordResetEmail(matchedEmail, otp, isFirstSetup);
   } catch (err) {
     console.error(
       "[auth] Failed to send password reset email:",

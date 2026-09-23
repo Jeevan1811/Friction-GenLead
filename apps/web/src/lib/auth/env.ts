@@ -1,23 +1,23 @@
 /**
  * Required-environment-variable helpers for the auth system.
  *
- * This is a single-account system configured entirely via env vars. There
- * is no safe default for any of these — an empty JWT secret would be a
- * real backdoor — so every accessor throws loudly the moment it's used
- * rather than silently falling back to something insecure.
- * `apps/web/src/instrumentation.ts` also calls `assertAuthEnv()` once at
- * process startup so a misconfigured deploy fails immediately instead of
- * on the first request.
+ * This is a small fixed-allowlist system (not open signup) configured via
+ * env vars. There is no safe default for any of these — an empty JWT
+ * secret would be a real backdoor — so every accessor throws loudly the
+ * moment it's used rather than silently falling back to something
+ * insecure. `apps/web/src/instrumentation.ts` also calls `assertAuthEnv()`
+ * once at process startup so a misconfigured deploy fails immediately
+ * instead of on the first request.
  *
  * AUTH_PASSWORD_HASH is deliberately NOT in this required list anymore --
- * the password hash moved to the mutable credential-store.ts (so the
- * account owner can set/reset it themselves without a redeploy). A fresh
- * deploy legitimately starts with no password set yet, which the account
- * owner resolves via the first-login "set your password" flow.
+ * passwords moved to the mutable credential-store.ts (so each account
+ * owner can set/reset their own without a redeploy). A fresh deploy
+ * legitimately starts with no passwords set yet, which each account owner
+ * resolves via the first-login "set your password" flow.
  */
 
 const REQUIRED_AUTH_VARS = [
-  "AUTH_EMAIL",
+  "AUTH_ALLOWED_EMAILS",
   "AUTH_JWT_SECRET",
 ] as const;
 
@@ -41,4 +41,28 @@ export function assertAuthEnv(): void {
   for (const name of REQUIRED_AUTH_VARS) {
     requireEnv(name);
   }
+}
+
+/**
+ * The small fixed set of emails allowed to hold an account -- NOT open
+ * signup. Comma-separated in AUTH_ALLOWED_EMAILS. There is no UI or API
+ * path that adds to this list at runtime; growing or shrinking it is a
+ * deploy-time env change only.
+ */
+export function getAllowedEmails(): string[] {
+  return requireEnv("AUTH_ALLOWED_EMAILS")
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Case-insensitively matches `email` against the allowlist and returns the
+ * canonical form (exactly as configured in AUTH_ALLOWED_EMAILS) if found,
+ * or null. Callers use the canonical form as the credential-store key so
+ * casing typed at login can never fork one account into two records.
+ */
+export function matchAllowedEmail(email: string): string | null {
+  const needle = email.trim().toLowerCase();
+  return getAllowedEmails().find((e) => e.toLowerCase() === needle) ?? null;
 }

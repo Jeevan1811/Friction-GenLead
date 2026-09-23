@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
   }
 
   const hash = await bcrypt.hash(newPassword, SALT_ROUNDS);
-  setPasswordHash(hash);
+  setPasswordHash(result.email, hash);
 
   const token = await signSessionToken();
   const res = NextResponse.json({ success: true });

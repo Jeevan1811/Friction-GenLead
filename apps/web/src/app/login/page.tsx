@@ -4,13 +4,13 @@ import { useState, useRef, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, Mail, ShieldCheck, Loader2, ArrowLeft, KeyRound } from "lucide-react";
 
-type Step = "checking" | "credentials" | "otp" | "reset-request" | "reset-confirm";
+type Step = "credentials" | "otp" | "reset-request" | "reset-confirm";
 type ResetMode = "setup" | "forgot";
 
 export default function LoginPage() {
   const router = useRouter();
 
-  const [step, setStep] = useState<Step>("checking");
+  const [step, setStep] = useState<Step>("credentials");
   const [resetMode, setResetMode] = useState<ResetMode>("forgot");
 
   // Normal login state
@@ -38,31 +38,6 @@ export default function LoginPage() {
     if (step === "otp") codeInputRef.current?.focus();
     if (step === "reset-confirm") resetCodeInputRef.current?.focus();
   }, [step]);
-
-  // On load, find out whether a password has ever been set for this
-  // account. If not, skip straight to the "set up your password" flow —
-  // there is nothing to log in with yet.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/auth/password/status");
-        const data = await res.json();
-        if (cancelled) return;
-        if (data.passwordSet === false) {
-          setResetMode("setup");
-          setStep("reset-request");
-        } else {
-          setStep("credentials");
-        }
-      } catch {
-        if (!cancelled) setStep("credentials");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleCredentialsSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -144,6 +119,7 @@ export default function LoginPage() {
         return;
       }
       setResetPendingToken(data.pendingToken);
+      setResetMode(data.isFirstSetup ? "setup" : "forgot");
       setResetMaskedEmail(maskEmail(resetEmail));
       setNewPassword("");
       setConfirmPassword("");
@@ -197,13 +173,9 @@ export default function LoginPage() {
   };
 
   const stepSubtitle: Record<Step, string> = {
-    checking: "",
     credentials: "Sign in to continue",
     otp: "Enter the code we emailed you",
-    "reset-request":
-      resetMode === "setup"
-        ? "Let's set up your password"
-        : "Reset your password",
+    "reset-request": "First time here, or forgot your password?",
     "reset-confirm":
       resetMode === "setup" ? "Set your password" : "Choose a new password",
   };
@@ -259,12 +231,6 @@ export default function LoginPage() {
         </div>
 
         <div className="surface-card" style={{ padding: "28px" }}>
-          {step === "checking" && (
-            <div style={{ display: "flex", justifyContent: "center", padding: "12px" }}>
-              <Loader2 size={20} style={{ animation: "spin 1s linear infinite" }} />
-            </div>
-          )}
-
           {step === "credentials" && (
             <form
               onSubmit={handleCredentialsSubmit}
@@ -309,7 +275,6 @@ export default function LoginPage() {
                     onClick={() => {
                       setError("");
                       setResetEmail(email);
-                      setResetMode("forgot");
                       setStep("reset-request");
                     }}
                     style={{
@@ -321,7 +286,7 @@ export default function LoginPage() {
                       cursor: "pointer",
                     }}
                   >
-                    Forgot password?
+                    First time / forgot password?
                   </button>
                 </div>
                 <div style={{ position: "relative" }}>
@@ -447,9 +412,8 @@ export default function LoginPage() {
               style={{ display: "flex", flexDirection: "column", gap: "16px" }}
             >
               <p style={{ fontSize: "13px", color: "var(--color-text-secondary)" }}>
-                {resetMode === "setup"
-                  ? "This account doesn't have a password yet. Enter your email and we'll send a code to set one up."
-                  : "Enter your email and we'll send a code to reset your password."}
+                Enter your email and we'll send you a code — to set up a password if
+                you don't have one yet, or to reset it if you've forgotten it.
               </p>
 
               <div>
@@ -497,20 +461,18 @@ export default function LoginPage() {
                 {submitting ? "Sending..." : "Send code"}
               </button>
 
-              {resetMode === "forgot" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStep("credentials");
-                    setError("");
-                  }}
-                  className="btn-secondary"
-                  style={{ width: "100%" }}
-                >
-                  <ArrowLeft size={14} />
-                  Back to sign in
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("credentials");
+                  setError("");
+                }}
+                className="btn-secondary"
+                style={{ width: "100%" }}
+              >
+                <ArrowLeft size={14} />
+                Back to sign in
+              </button>
             </form>
           )}
 

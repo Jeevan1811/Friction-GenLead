@@ -64,7 +64,26 @@ async def chat(request: ChatRequest):
 
     if request.stream and llm.api_key:
         async def generate():
-            async for chunk in llm.chat_stream(messages):
+            # Buffer the bounded completion so a provider failure can use the
+            # same built-in fallback as non-streaming chat without leaking a
+            # partial answer that the client cannot replace.
+            chunks: list[str] = []
+            try:
+                async for chunk in llm.chat_stream(messages):
+                    chunks.append(chunk)
+            except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                logger.warning(
+                    "Streaming LLM unavailable (%s: status=%s); using built-in guide",
+                    type(exc).__name__,
+                    status,
+                )
+                fallback = assistant.fallback_answer(question, ctx, ai_down=True)
+                yield f"data: {fallback}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+            for chunk in chunks:
                 yield f"data: {chunk}\n\n"
             yield "data: [DONE]\n\n"
 

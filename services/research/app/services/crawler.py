@@ -12,7 +12,7 @@ import logging
 import socket
 import time
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
@@ -65,6 +65,7 @@ MAX_RESPONSE_BYTES = 5 * 1024 * 1024   # 5 MB
 REQUEST_TIMEOUT_SECONDS = 15.0
 MAX_PAGES_PER_DOMAIN = 50
 MIN_REQUEST_INTERVAL_SECONDS = 2.0
+MAX_REDIRECTS = 5
 
 
 class SSRFError(Exception):
@@ -212,18 +213,37 @@ class WebsiteCrawler:
         start = time.monotonic()
         async with httpx.AsyncClient(
             timeout=REQUEST_TIMEOUT_SECONDS,
-            follow_redirects=True,
-            max_redirects=5,
+            follow_redirects=False,
         ) as client:
-            response = await client.get(
-                url,
-                headers={
-                    "User-Agent": (
-                        "FrictionGenLead/0.1 "
-                        "(+https://frictiongenlead.com.au/bot)"
-                    ),
-                },
-            )
+            current_url = url
+            for redirect_count in range(MAX_REDIRECTS + 1):
+                response = await client.get(
+                    current_url,
+                    headers={
+                        "User-Agent": (
+                            "FrictionGenLead/0.1 "
+                            "(+https://frictiongenlead.com.au/bot)"
+                        ),
+                    },
+                )
+
+                if not response.is_redirect:
+                    break
+
+                location = response.headers.get("location")
+                if not location:
+                    break
+                if redirect_count == MAX_REDIRECTS:
+                    raise CrawlLimitError(
+                        f"Redirect limit ({MAX_REDIRECTS}) exceeded."
+                    )
+
+                # Resolve relative locations and validate the destination before
+                # making any request to it. Never let httpx follow a redirect
+                # automatically, since that would contact the target first.
+                current_url = urljoin(current_url, location)
+                redirect_domain = self._resolve_and_validate(current_url)
+                self._enforce_rate_limit(redirect_domain)
 
             # Enforce size limit
             content_length = response.headers.get("content-length")
@@ -238,12 +258,6 @@ class WebsiteCrawler:
                 raise CrawlLimitError(
                     f"Response body exceeds {MAX_RESPONSE_BYTES} byte limit."
                 )
-
-            # Validate any redirect destinations
-            for redirect in response.history:
-                redirect_url = str(redirect.headers.get("location", ""))
-                if redirect_url:
-                    self._resolve_and_validate(redirect_url)
 
         elapsed = (time.monotonic() - start) * 1000
 

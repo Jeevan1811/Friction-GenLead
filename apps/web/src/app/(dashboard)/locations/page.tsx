@@ -265,8 +265,9 @@ export default function LocationsPage() {
                   <StatusBadge status={loc.locationType} />
                 </div>
                 <div style={{ fontSize: "12px", color: "var(--color-text-muted)", marginBottom: "8px" }}>
-                  {loc.address && `${loc.address}, `}
-                  {loc.suburb}, {loc.state} {loc.postcode}
+                  {[loc.address, loc.suburb, [loc.state, loc.postcode].filter(Boolean).join(" ")]
+                    .filter(Boolean)
+                    .join(", ")}
                 </div>
                 <StatusBadge status={loc.verificationStatus} showDot />
               </div>
@@ -322,7 +323,7 @@ export default function LocationsPage() {
                       <StatusBadge status={loc.locationType} />
                     </td>
                     <td style={{ padding: "12px 16px", color: "var(--color-text-secondary)" }}>
-                      {loc.suburb}, {loc.state}
+                      {[loc.suburb, loc.state].filter(Boolean).join(", ")}
                     </td>
                     <td style={{ padding: "12px 16px", color: "var(--color-text-muted)" }}>
                       {loc.postcode}

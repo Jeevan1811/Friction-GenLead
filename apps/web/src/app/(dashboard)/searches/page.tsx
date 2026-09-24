@@ -6,6 +6,7 @@ import { getJobs } from "@/lib/api";
 import type { JobRun } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PageLoading, PageError } from "@/components/shared/page-status";
+import { SampleDataNotice } from "@/components/shared/sample-data-notice";
 
 const statusConfig: Record<
   string,
@@ -65,6 +66,8 @@ export default function SearchesPage() {
           Past and active prospect research runs
         </p>
       </div>
+
+      <SampleDataNotice />
 
       {error && (
         <div style={{ marginBottom: "16px" }}>

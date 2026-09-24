@@ -21,8 +21,10 @@ function getSecretKey(): Uint8Array {
   return new TextEncoder().encode(requireEnv("AUTH_JWT_SECRET"));
 }
 
-export async function signSessionToken(): Promise<string> {
-  return new SignJWT({ authenticated: true })
+export async function signSessionToken(email?: string): Promise<string> {
+  // `email` is informational only (shown in the header). Authorization is
+  // still just `authenticated: true`; FastAPI ignores extra claims.
+  return new SignJWT({ authenticated: true, ...(email ? { email } : {}) })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuedAt()
     .setExpirationTime(SESSION_TTL)
@@ -39,6 +41,17 @@ export async function verifySessionToken(token: string): Promise<boolean> {
     // Expired, malformed, wrong signature, etc. — all treated the same:
     // not authenticated. Never leak the reason to the client.
     return false;
+  }
+}
+
+/** The signed-in account's email, or null (invalid token, or a session issued before email was recorded). */
+export async function getSessionEmail(token: string): Promise<string | null> {
+  try {
+    const { payload } = await jwtVerify(token, getSecretKey(), { algorithms: ["HS256"] });
+    if (payload.authenticated !== true) return null;
+    return typeof payload.email === "string" ? payload.email : null;
+  } catch {
+    return null;
   }
 }
 

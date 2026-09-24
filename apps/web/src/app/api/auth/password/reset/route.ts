@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
   const hash = await bcrypt.hash(newPassword, SALT_ROUNDS);
   setPasswordHash(result.email, hash);
 
-  const token = await signSessionToken();
+  const token = await signSessionToken(result.email);
   const res = NextResponse.json({ success: true });
   res.cookies.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,

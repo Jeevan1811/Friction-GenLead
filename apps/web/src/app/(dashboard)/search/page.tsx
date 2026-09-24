@@ -17,6 +17,7 @@ import { ResearchProgress } from "@/components/shared/research-progress";
 import { useToast } from "@/components/ui/toast";
 import { startResearch, getJobs } from "@/lib/api";
 import { PageLoading, PageError } from "@/components/shared/page-status";
+import { SampleDataNotice } from "@/components/shared/sample-data-notice";
 
 const INDUSTRIES = [
   "Mining",
@@ -151,6 +152,8 @@ export default function SearchPage() {
           Discover and verify industrial companies and contacts in Queensland
         </p>
       </div>
+
+      <SampleDataNotice />
 
       {/* Search form */}
       <div

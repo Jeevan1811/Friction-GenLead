@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Search, Bell, LogOut } from "lucide-react";
 import { Dropdown } from "@/components/ui/dropdown";
@@ -22,6 +23,22 @@ export function Header({ onOpenCommandPalette }: HeaderProps) {
   const pathname = usePathname();
   const router = useRouter();
   const title = pageTitles[pathname] ?? "Friction GenLead";
+  const [email, setEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d?.email) setEmail(d.email);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const initials = email ? email.split("@")[0].replace(/[^a-zA-Z]/g, "").slice(0, 2).toUpperCase() || "?" : "•";
 
   const handleLogout = async () => {
     try {
@@ -178,10 +195,16 @@ export function Header({ onOpenCommandPalette }: HeaderProps) {
                 (e.currentTarget.style.borderColor = "var(--color-border)")
               }
             >
-              JK
+              {initials}
             </div>
           }
           items={[
+            ...(email
+              ? [
+                  { label: email, onClick: () => {} },
+                  { kind: "separator" as const },
+                ]
+              : []),
             { label: "Log out", icon: LogOut, onClick: handleLogout, destructive: true },
           ]}
         />

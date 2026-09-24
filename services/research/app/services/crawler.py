@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse
 
+import httpcore
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,73 @@ class SSRFError(Exception):
 
 class CrawlLimitError(Exception):
     """Raised when crawl limits are exceeded."""
+
+
+@dataclass(frozen=True)
+class _ResolvedTarget:
+    hostname: str
+    port: int
+    addresses: tuple[str, ...]
+
+    @property
+    def key(self) -> tuple[str, int]:
+        return self.hostname, self.port
+
+
+class _PinnedAddressBackend(httpcore.AsyncNetworkBackend):
+    """Connect only to IPs already resolved and validated by the crawler."""
+
+    def __init__(
+        self,
+        addresses: dict[tuple[str, int], tuple[str, ...]],
+        delegate: httpcore.AsyncNetworkBackend,
+    ) -> None:
+        self._addresses = addresses
+        self._delegate = delegate
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options=None,
+    ) -> httpcore.AsyncNetworkStream:
+        normalized_host = host.encode("idna").decode("ascii").lower().rstrip(".")
+        addresses = self._addresses.get((normalized_host, port))
+        if not addresses:
+            raise httpcore.ConnectError(
+                f"No validated DNS result for {normalized_host}:{port}."
+            )
+
+        last_error: Exception | None = None
+        for address in addresses:
+            try:
+                return await self._delegate.connect_tcp(
+                    address,
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
+                last_error = exc
+
+        if last_error is not None:
+            raise last_error
+        raise httpcore.ConnectError(
+            f"No validated DNS result for {normalized_host}:{port}."
+        )
+
+    async def connect_unix_socket(
+        self, path: str, timeout: float | None = None, socket_options=None
+    ) -> httpcore.AsyncNetworkStream:
+        return await self._delegate.connect_unix_socket(
+            path, timeout=timeout, socket_options=socket_options
+        )
+
+    async def sleep(self, seconds: float) -> None:
+        await self._delegate.sleep(seconds)
 
 
 @dataclass
@@ -144,11 +212,8 @@ class WebsiteCrawler:
                     f"IP {addr} falls within blocked network {network}."
                 )
 
-    def _resolve_and_validate(self, url: str) -> str:
-        """Resolve hostname to IP and validate against blocked networks.
-
-        Returns the validated hostname/IP.
-        """
+    def _resolve_and_validate(self, url: str) -> _ResolvedTarget:
+        """Resolve a URL and return only its validated connection addresses."""
         self._validate_scheme(url)
 
         parsed = urlparse(url)
@@ -168,11 +233,18 @@ class WebsiteCrawler:
             raise SSRFError(f"No DNS results for '{hostname}'.")
 
         # Validate EVERY resolved IP (not just the first)
+        addresses: list[str] = []
         for family, _type, _proto, _canonname, sockaddr in addr_infos:
             ip_str = sockaddr[0]
             self._validate_ip(ip_str)
+            if ip_str not in addresses:
+                addresses.append(ip_str)
 
-        return hostname
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        normalized_hostname = (
+            hostname.encode("idna").decode("ascii").lower().rstrip(".")
+        )
+        return _ResolvedTarget(normalized_hostname, port, tuple(addresses))
 
     # ------------------------------------------------------------------
     # Rate limiting
@@ -206,14 +278,31 @@ class WebsiteCrawler:
             CrawlLimitError: Domain page limit exceeded.
             httpx.HTTPError: Network-level failure.
         """
-        domain = self._resolve_and_validate(url)
+        target = self._resolve_and_validate(url)
+        domain = target.hostname
         self._enforce_page_limit(domain)
         self._enforce_rate_limit(domain)
 
         start = time.monotonic()
+        pinned_addresses = {target.key: target.addresses}
+        transport = httpx.AsyncHTTPTransport(trust_env=False)
+        pool = getattr(transport, "_pool", None)
+        if pool is None or not hasattr(pool, "_network_backend"):
+            await transport.aclose()
+            raise RuntimeError("HTTPX transport cannot install the validated DNS backend.")
+        # HTTPX does not expose a public custom-network-backend constructor.
+        # Replace the pool backend before the first connection; fail closed if
+        # a future HTTPX version changes this transport internals contract.
+        pool._network_backend = _PinnedAddressBackend(
+            pinned_addresses,
+            delegate=pool._network_backend,
+        )
+
         async with httpx.AsyncClient(
+            transport=transport,
             timeout=REQUEST_TIMEOUT_SECONDS,
             follow_redirects=False,
+            trust_env=False,
         ) as client:
             current_url = url
             for redirect_count in range(MAX_REDIRECTS + 1):
@@ -242,8 +331,9 @@ class WebsiteCrawler:
                 # making any request to it. Never let httpx follow a redirect
                 # automatically, since that would contact the target first.
                 current_url = urljoin(current_url, location)
-                redirect_domain = self._resolve_and_validate(current_url)
-                self._enforce_rate_limit(redirect_domain)
+                redirect_target = self._resolve_and_validate(current_url)
+                pinned_addresses[redirect_target.key] = redirect_target.addresses
+                self._enforce_rate_limit(redirect_target.hostname)
 
             # Enforce size limit
             content_length = response.headers.get("content-length")

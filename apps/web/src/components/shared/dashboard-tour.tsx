@@ -33,7 +33,7 @@ export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
     target: '[data-tour="search-overview"]',
     title: "Search anywhere by place",
     description:
-      "Enter a city, region, country or postcode. Public map records and QLD ABR name matches can uncover candidates; coverage is not exhaustive, and sector, company status and contacts still need evidence and your review.",
+      "Search by place and sector. Coverage varies; review each candidate before contacting it.",
     side: "bottom",
   },
   {
@@ -81,7 +81,7 @@ export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
     target: '[data-tour="searches-overview"]',
     title: "Search history",
     description:
-      "Search summaries and successfully saved candidate details are stored in the Google Sheet. Older history entries may contain summary counts only.",
+      "Click a company count to open that run’s saved results. Older runs may keep summary counts only.",
     side: "bottom",
   },
   {

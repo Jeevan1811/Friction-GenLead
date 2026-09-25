@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Building2, Users, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { getJobs } from "@/lib/api";
 import type { JobRun } from "@/lib/types";
@@ -8,6 +9,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { SampleDataNotice } from "@/components/shared/sample-data-notice";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
+import { buildResearchRunCompaniesHref } from "@/lib/research-run-results";
 
 const statusConfig: Record<
   string,
@@ -59,7 +61,7 @@ export default function SearchesPage() {
           Search History
         </h1>
         <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginTop: "4px" }}>
-          Past and active prospect research runs
+          Saved searches
         </p>
       </div>
 
@@ -96,14 +98,6 @@ export default function SearchesPage() {
                 className="surface-card"
                 style={{
                   padding: "20px",
-                  cursor: "pointer",
-                  transition: "all var(--transition-fast)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "var(--color-accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--color-border)";
                 }}
               >
                 <div
@@ -173,20 +167,40 @@ export default function SearchesPage() {
                       <p style={{ margin: "0 0 8px", color: "var(--color-error)", fontSize: "12px" }}>{run.errorSummary}</p>
                     )}
 
-                    {/* Summary counts are saved; full result records live in canonical tabs. */}
+                    {/* Counts link to the saved cohort when detail rows are available. */}
                     <div style={{ display: "flex", gap: "16px" }}>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "6px",
-                          fontSize: "12px",
-                          color: "var(--color-text-secondary)",
-                        }}
-                      >
-                        <Building2 size={14} />
-                        {run.companiesFound} companies
-                      </div>
+                      {run.status !== "running" && run.companiesFound > 0 ? (
+                        <Link
+                          href={buildResearchRunCompaniesHref(run.jobId)}
+                          aria-label={`View ${run.companiesFound} companies from ${run.location || run.postcode}`}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            minHeight: "40px",
+                            fontSize: "12px",
+                            color: "var(--color-accent)",
+                            textDecoration: "underline",
+                            textUnderlineOffset: "3px",
+                          }}
+                        >
+                          <Building2 size={14} />
+                          {run.companiesFound} companies
+                        </Link>
+                      ) : (
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "6px",
+                            fontSize: "12px",
+                            color: "var(--color-text-secondary)",
+                          }}
+                        >
+                          <Building2 size={14} />
+                          {run.companiesFound} companies
+                        </div>
+                      )}
                       <div
                         style={{
                           display: "flex",

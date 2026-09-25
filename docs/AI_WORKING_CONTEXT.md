@@ -1,17 +1,15 @@
 # Friction GenLead AI Working Context
 
-Last updated: 2026-09-24 (Asia/Singapore)
+Last updated: 2026-09-26 (Asia/Singapore)
 
 ## Repository and release state
 
-- Repository: `C:\Users\Asus\OneDrive - wsm llc\Documents\Friction GenLead`
-- Working branch: `codex/genlead-shipfix`
-- Application commits: `627b2c5` (redirect ordering and streamed chat fallback), `484f700` (pin connections to validated DNS addresses)
-- Branch base: `19580033d23e817357a3719dc3f11a7e30fd2fcb` (local main, including the committed postcode centroid helper)
-- Production before this fix: `72754d9` on `31.97.70.50`, PM2 app user `frictiongenlead`
-- Production after this fix: `484f700` on `main`; research API restarted, health returned 200, unauthenticated data access returned 401, and a real crawler GET to `https://example.com/` returned 200.
-- The original `main` worktree has unrelated uncommitted migration and UI changes. They were not copied into this branch or changed.
-- Deployment status: deployed and verified. A documentation-only follow-up may advance the repository HEAD without changing app code.
+- Repository: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-shipfix`
+- Working branch: `codex/genlead-dashboard-polish`, based on `origin/main` at `e32cf17`.
+- Production: `31.97.70.50`, app user `frictiongenlead`; dashboard release `b401670` is live and the prior search-to-Sheets run remains synced.
+- Current task: the live Search History “30 companies” count was clicked in the authenticated browser and did not navigate. A focused UI fix is implemented locally to open run-scoped company results and company details, remove duplicate sidebar Settings, align the avatar trigger, and reduce repeated copy.
+- Current polish verification: research-run helper tests, trusted-device tests, web typecheck, and Next production build pass. Current UI polish changes have not yet been deployed; see the latest worklog entry for release status.
+- Existing uncommitted auth/device-lock changes in this worktree belong to Jeevan and are excluded from the dashboard-polish change. Do not inspect or modify `.env`, credentials, or other VPS applications.
 
 ## Verified findings and changes in progress
 

@@ -11,7 +11,6 @@ import {
   Users,
   History,
   XCircle,
-  Settings,
   CalendarClock,
   FileSearch,
   PanelLeftClose,
@@ -127,12 +126,6 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       label: "Follow-ups",
       icon: CalendarClock,
       count: null as number | null,
-    },
-    {
-      href: "/settings",
-      label: "Settings",
-      icon: Settings,
-      count: null,
     },
   ];
 

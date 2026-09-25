@@ -366,6 +366,69 @@ def test_search_run_summary_survives_service_object_recreation():
     assert restored[0].details_available is False
 
 
+def test_saved_company_ids_recover_run_details_when_legacy_flag_is_false():
+    row = {
+        "job_id": "persisted-run-recovery-after-restart",
+        "postcode": "",
+        "location_query": "Gladstone, Queensland, Australia",
+        "industry": "Heavy Industry",
+        "roles": "[]",
+        "status": "completed",
+        "companies_found": "1",
+        "contacts_found": "0",
+        "created_at": "2026-09-25T00:00:00+00:00",
+        "updated_at": "2026-09-25T00:01:00+00:00",
+        "company_ids": '["cmp-persisted"]',
+        "contact_ids": "[]",
+        "details_saved": "false",
+    }
+
+    class CanonicalSheets:
+        async def read_companies(self):
+            return [{"company_id": "cmp-persisted", "company_name": "Northstar Industrial"}]
+
+        async def read_contacts(self):
+            return []
+
+    restored_job = Jev._job_from_run_row(row)
+    restored = asyncio.run(Jev(sheets=CanonicalSheets()).get_job_results(restored_job))
+
+    assert restored.details_available is True
+    assert restored.companies_found == [
+        {"company_id": "cmp-persisted", "company_name": "Northstar Industrial"}
+    ]
+
+
+def test_saved_run_with_incomplete_ids_fails_closed_instead_of_showing_partial_results():
+    row = {
+        "job_id": "persisted-run-incomplete-after-restart",
+        "postcode": "",
+        "location_query": "Gladstone, Queensland, Australia",
+        "industry": "Heavy Industry",
+        "roles": "[]",
+        "status": "completed",
+        "companies_found": "2",
+        "contacts_found": "0",
+        "created_at": "2026-09-25T00:00:00+00:00",
+        "updated_at": "2026-09-25T00:01:00+00:00",
+        "company_ids": '["cmp-present"]',
+        "contact_ids": "[]",
+        "details_saved": "true",
+    }
+
+    class CanonicalSheets:
+        async def read_companies(self):
+            return [{"company_id": "cmp-present", "company_name": "Northstar Industrial"}]
+
+        async def read_contacts(self):
+            return []
+
+    restored_job = Jev._job_from_run_row(row)
+
+    with pytest.raises(RuntimeError, match="do not match the persisted summary counts"):
+        asyncio.run(Jev(sheets=CanonicalSheets()).get_job_results(restored_job))
+
+
 def test_jev_pipeline_stages_are_available_on_service():
     service = Jev(sheets=GoogleSheetsAdapter())
     assert callable(service._step_research_contacts)

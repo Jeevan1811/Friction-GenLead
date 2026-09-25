@@ -165,6 +165,14 @@ class Jev:
 
         company_ids = set(job.result_company_ids)
         contact_ids = set(job.result_contact_ids)
+        if (
+            job.historical_companies_count is not None
+            and len(company_ids) != job.historical_companies_count
+        ) or (
+            job.historical_contacts_count is not None
+            and len(contact_ids) != job.historical_contacts_count
+        ):
+            raise RuntimeError("Saved research result IDs do not match the persisted summary counts.")
         companies = await self.sheets.read_companies()
         contacts = await self.sheets.read_contacts()
         job.companies_found = [
@@ -216,6 +224,9 @@ class Jev:
             roles = json.loads(roles_value) if isinstance(roles_value, str) else roles_value
         except (json.JSONDecodeError, TypeError):
             roles = []
+        company_ids = _json_string_list(row.get("company_ids"))
+        contact_ids = _json_string_list(row.get("contact_ids"))
+        details_saved = str(row.get("details_saved", "")).strip().casefold() == "true"
         job = ResearchJob(
             job_id=str(row.get("job_id", "")),
             postcode=str(row.get("postcode", "")),
@@ -229,10 +240,13 @@ class Jev:
             status=str(row.get("status", "failed")),
             created_at=created_at,
             updated_at=updated_at,
-            result_company_ids=_json_string_list(row.get("company_ids")),
-            result_contact_ids=_json_string_list(row.get("contact_ids")),
-            details_available=str(row.get("details_saved", "")).casefold() == "true",
-            details_saved=str(row.get("details_saved", "")).casefold() == "true",
+            result_company_ids=company_ids,
+            result_contact_ids=contact_ids,
+            # Older summaries may have a stale false flag even though the exact
+            # canonical row IDs were saved. Let get_job_results verify those IDs
+            # against Companies/Contacts; it still fails closed if any are absent.
+            details_available=details_saved or bool(company_ids or contact_ids),
+            details_saved=details_saved,
         )
         job.historical_companies_count = _safe_int(row.get("companies_found"))
         job.historical_contacts_count = _safe_int(row.get("contacts_found"))

@@ -1,0 +1,9 @@
+# Incident: saved search results unavailable after API restart
+
+- **Surface / symptom:** After the API restarted for the scoped GenLead deploy, opening the previously completed Gladstone run from its “30 companies” link showed `0 saved companies` and a summary-only message.
+- **Impact:** Existing company records remained in the canonical Google Sheet, but this run could not reopen its cohort or company details from the dashboard. No source rows were deleted or changed.
+- **Evidence:** Authenticated production browser navigation to `/companies?researchRun=…` reproduced the summary-only state. A read-only inspection of that run's `SearchRuns` row showed non-empty `company_ids` while `details_saved` was `false`. `_job_from_run_row` trusted only the boolean and set `details_available=false`, so the results endpoint returned 410 without attempting the persisted IDs.
+- **Root cause:** Confirmed source defect: persisted result IDs were ignored whenever the separate `details_saved` flag was false. The reason that this particular flag was false despite persisted IDs remains `unroot-caused / investigation required`.
+- **Recovery in source:** Interpret a non-empty persisted company/contact ID list as a recovery candidate; reload only those exact IDs from canonical tabs; require the ID counts to equal the persisted summary counts and require every requested row to exist. Otherwise return an error, never unrelated or partial rows.
+- **Prevention:** Regression tests cover recovery when the old flag is false and fail-closed behavior for mismatched counts. Live closure requires the production run link to reopen the exact saved cohort after deployment, then open a company drawer, with no new search or Sheet write.
+- **Rollback:** Revert the scoped recovery PR and redeploy only the Friction GenLead API/web processes. No Sheet migration or data rewrite is required.

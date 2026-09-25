@@ -205,6 +205,16 @@ def test_count_fallback_uses_live_tab_totals_without_irrelevant_tour(seeded):
     assert "Start or replay the dashboard guide" not in out
 
 
+def test_combined_global_counts_are_not_misread_as_a_place_search(seeded):
+    question = "How many companies, locations and contacts are currently in my data?"
+    context = _ctx(question)
+    out = assistant.fallback_answer(question, context, ai_down=False)
+    assert "Location search:" not in out
+    assert "2 companies" in out
+    assert "1 location" in out
+    assert "1 contact" in out
+
+
 def test_assistant_does_not_send_user_to_ask_a_person():
     prompt = assistant.system_prompt(assistant.DataContext())
     assert "do not send them to ask a person" in prompt

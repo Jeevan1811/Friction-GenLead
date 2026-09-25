@@ -83,8 +83,12 @@ async def chat(request: ChatRequest):
                 yield "data: [DONE]\n\n"
                 return
 
-            for chunk in chunks:
-                yield f"data: {chunk}\n\n"
+            response = assistant.add_navigation(
+                question, assistant.sanitize("".join(chunks))
+            )
+            for line in response.splitlines() or [""]:
+                yield f"data: {line}\n"
+            yield "\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(generate(), media_type="text/event-stream")
@@ -97,7 +101,10 @@ async def chat(request: ChatRequest):
 
     try:
         text = await llm.chat(messages, temperature=0.2, max_tokens=700)
-        return ChatResponse(response=assistant.sanitize(text), model=llm.model)
+        safe_text = assistant.sanitize(text)
+        return ChatResponse(
+            response=assistant.add_navigation(question, safe_text), model=llm.model
+        )
     except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
         status = getattr(getattr(exc, "response", None), "status_code", None)
         logger.warning("LLM unavailable (%s: status=%s); using built-in guide", type(exc).__name__, status)

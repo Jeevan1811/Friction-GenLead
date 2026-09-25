@@ -2,6 +2,15 @@
 
 Last updated: 2026-09-26 (Asia/Singapore)
 
+## Current task — live, self-service GenLead assistant
+
+- Active isolated worktree: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-search-guide`, branch `codex/genlead-live-help`, based on deployed `origin/main` `f09e9c70930be7468543748af78256be20060e0a`. The original user-dirty `genlead-shipfix` worktree and auth/device-lock changes remain untouched.
+- User request: MSV should be able to ask the in-app assistant how to use GenLead and ask about current Sheet data without being sent back to Jeevan. Answers should show instructional screenshots and safe buttons to relevant app pages/the live Sheet.
+- Implemented locally, not yet committed/deployed: per-question read of Companies, Locations, Contacts, Rejected, Activities, SearchRuns and SourceRecords; matching company/contact identifiers, locations, statuses, notes/follow-ups, saved run summaries and company names, rejection reasons, and original workbook cell values. The model receives only a bounded set of relevant rows plus aggregate counts; it does not receive all Sheet rows, source hashes, or internal row IDs. Contact PII is included only for matching contact/company requests. Live-tab failures are explicit/unavailable, not represented as zero. Google Sheet reads use the adapter's 5-second cache.
+- UI: greeting and prompt suggestions set the self-service expectation; the greeting offers a validated `docs.google.com` Sheet button when connected. Screenshot/page markers now use a shared frontend allowlist matching backend routes and known screenshot assets; `/source-data`, `/follow-ups`, and `/settings` are no longer silently dropped. Search, activity, rejected and source-data answers get contextual page buttons. Screenshots are explicitly instructional examples, not current client records.
+- Final source verification: full backend suite **157 passed**; frontend Node suite **11 passed**; web typecheck and optimized Next production build passed; `git diff --check` passed (Windows only reports line-ending normalization notices).
+- No production Sheet writes/searches, no contact-specific live model QA, and no `.env`, credential, OTP, SMTP, auth/device-lock or unrelated VPS activity. Next: open/merge a scoped PR, deploy only the two named GenLead PM2 processes under the existing ship authorization, then browser-test a benign help question (screenshot/page button and greeting Sheet button) and an aggregate count only. Preserve all other apps and existing VPS untracked files.
+
 ## Active release state — private-only MSV GenLead
 
 - Active isolated worktree: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-search-guide`. Current docs-sync branch `codex/genlead-release-qa-docs`, based on deployed `origin/main` `059a5d3`; the original user-dirty `genlead-shipfix` worktree and auth/device-lock changes remain untouched.

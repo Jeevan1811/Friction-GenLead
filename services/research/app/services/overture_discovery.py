@@ -166,6 +166,11 @@ def _map_record(raw: dict[str, Any], release: str, location: str) -> dict[str, A
         return None
 
     address = _as_object(next(iter(_as_list(record.get("addresses"))), {}))
+    raw_country = _first_text(address.get("country"))
+    country_code = _first_text(address.get("country_code")).casefold()
+    if not country_code and len(raw_country) == 2:
+        country_code = raw_country.casefold()
+    country_name = "" if len(raw_country) == 2 else raw_country
     sources = [_as_object(item) for item in _as_list(record.get("sources")) if item is not None]
     source_licenses = sorted({
         str(item.get("license")).strip()
@@ -188,8 +193,8 @@ def _map_record(raw: dict[str, Any], release: str, location: str) -> dict[str, A
         "provider_id": provider_id,
         "name": name,
         "industry": category,
-        "country": _first_text(address.get("country")),
-        "country_code": _first_text(address.get("country_code")).casefold(),
+        "country": country_name,
+        "country_code": country_code,
         "state": _first_text(address.get("region")),
         "postcode": _first_text(address.get("postcode")),
         "suburb": _first_text(address.get("locality")),
@@ -401,7 +406,6 @@ def _query_overture(
                 addresses[1].region AS region,
                 addresses[1].postcode AS postcode,
                 addresses[1].country AS country,
-                addresses[1].country_code AS country_code,
                 websites[1] AS website,
                 phones[1] AS phone,
                 emails[1] AS email,
@@ -435,7 +439,7 @@ def _query_overture(
                 "addresses": [{
                     "freeform": row.get("address"), "locality": row.get("locality"),
                     "region": row.get("region"), "postcode": row.get("postcode"),
-                    "country": row.get("country"), "country_code": row.get("country_code"),
+                    "country": row.get("country"),
                 }],
                 "websites": [row.get("website")] if row.get("website") else [],
                 "phones": [row.get("phone")] if row.get("phone") else [],

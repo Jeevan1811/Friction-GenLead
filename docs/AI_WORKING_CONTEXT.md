@@ -148,3 +148,16 @@ Last updated: 2026-09-24 (Asia/Singapore)
 - Keep auth/device-lock changes out of scope (owner explicitly deferred them). Do not inspect `.env`/credentials, send OTP, or claim authenticated candidate persistence verified. Preserve the three pre-existing untracked VPS items and restart only GenLead's API/web PM2 processes.
 - After PR #4 was pulled, a repeat read-only query reached Overture release `2026-09-23.0` and found a second mismatch: Place schema v2 has top-level `basic_category`, not `taxonomy.basic_category`. This query returned no candidate rows; there was no Sheet operation or service restart. Local SQL now uses the documented top-level field and regression test asserts that contract; backend suite: **129 passed**. Merge this narrow correction and re-run the live query before restarting.
 - After PR #5, live schema binding then exposed `addresses[1].country_code`, which is absent from the current Places Address struct. Local fix selects `addresses[1].country`, derives the ISO alpha-2 code, and falls back to the geocoded country name for display. Targeted tests plus all **129 research tests** pass; correction remains unmerged. The live query still returned no candidate rows, and no Sheet operation or service restart occurred.
+
+## Current production state — 2026-09-25
+
+- PRs #4–#6 (DuckDB option and Overture v2 category/address schema fixes) are merged; production at `/opt/frictiongenlead/app` is `545df947368c02b2b37708949ac83803c0eb191c`. Research backend suite: **129 passed**. Next build passed before deployment; no frontend changes were made after it.
+- The bounded read-only live Overture query succeeded on `2026-09-23.0`: 45 candidates, with 45 source records/phones and 41 listed websites. Do not represent this as a full accuracy/exhaustiveness guarantee; the source warns coverage is uneven.
+- Only `frictiongenlead-api` and `frictiongenlead-web` restarted; both remain online. API `/internal/health` is OK. The authenticated dashboard shows 4,199 companies, 6,331 locations, 1,707 contacts, and `Synced`; Leaflet global map renders. Search UI enables for a valid location; no form submission or Sheet write has been made. Await a user-chosen location/industry before the final write-through QA.
+- Auth/device-lock changes remain excluded per owner's choice. No OTP, `.env`, credential, unrelated PM2 process, or existing business row was touched. Preserve the VPS's three untracked items: SMTP backup, ecosystem config, and research venv.
+
+## Approved production search QA update — 2026-09-25
+
+- This update supersedes the pre-write snapshot immediately above.
+- One owner-approved query, Gladstone, Queensland, Australia · Heavy Industry, completed and synced to Google Sheets: 30 companies, 29 locations, and 1 contact. Dashboard counts moved 4,199 / 6,331 / 1,707 / 0 searches to 4,229 / 6,360 / 1,708 / 1 search. No second search was submitted.
+- The run exposed two Search History display issues: city queries showed `Postcode`, and completed runs showed `APPROVED` even though candidates await human review. Fixes are on `codex/genlead-search-history-location`; build/deploy and browser verification remain pending. The data flow is verified for this single approved query, not as a guarantee of complete source coverage or candidate accuracy.

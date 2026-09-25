@@ -14,7 +14,7 @@ const statusConfig: Record<
   { icon: typeof Clock; color: string; badgeStatus: string }
 > = {
   running: { icon: Loader2, color: "var(--color-warning)", badgeStatus: "VERIFYING" },
-  completed: { icon: CheckCircle2, color: "var(--color-success)", badgeStatus: "APPROVED" },
+  completed: { icon: CheckCircle2, color: "var(--color-success)", badgeStatus: "COMPLETED" },
   failed: { icon: XCircle, color: "var(--color-error)", badgeStatus: "ERROR" },
   cancelled: { icon: Clock, color: "var(--color-text-muted)", badgeStatus: "STALE" },
   interrupted: { icon: Clock, color: "var(--color-text-muted)", badgeStatus: "STALE" },
@@ -147,7 +147,7 @@ export default function SearchesPage() {
                       }}
                     >
                       <span style={{ fontSize: "14px", fontWeight: 500, color: "var(--color-text)" }}>
-                        Postcode {run.postcode}
+                        Location: {run.location || run.postcode || "Location not recorded"}
                       </span>
                       {run.industry && (
                         <span

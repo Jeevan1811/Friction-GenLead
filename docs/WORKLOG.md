@@ -160,3 +160,10 @@
 - Dashboard counts before / after: companies **4,199 → 4,229**, locations **6,331 → 6,360**, contacts **1,707 → 1,708**, searches **0 → 1**. The workflow added 30 company, 29 location, and 1 contact records. No second search was run.
 - Search History displayed `Postcode` for the city and `APPROVED` for the completed run, which could imply the prospects had human approval. Fixes are on `codex/genlead-search-history-location`; production deployment and browser verification are pending.
 - Trusted-device locking remains deferred. No OTP, `.env`, credential, unrelated app/process, or existing business row was touched. Preserve the three existing untracked VPS items.
+
+## 2026-09-26 — label fix deployed and verified
+
+- PR #7 merged as `b401670f43382807e1f133e008a86de11df0811e`; VPS checkout is at that commit. Next.js production build passed. Restarted only `frictiongenlead-web`; `frictiongenlead-api` stayed online and `/internal/health` returned `status: ok`.
+- Reloaded the live browser: `/searches` renders the correct city (`Gladstone, Queensland, Australia`) and `COMPLETED`; `/search` recent searches shows the same. The label no longer claims a prospect run was human-approved.
+- Rechecked live counts: 4,229 companies, 6,360 locations, 1,708 contacts, 1 search; Sheets connection shows `Synced`. `/locations` loaded the cluster map and OpenStreetMap attribution; browser error log was empty.
+- This verifies one authorized production search-to-Sheets run, not exhaustive company coverage or accuracy. No second search, OTP, or credential change occurred. Device-lock remains deferred; the three existing untracked VPS items and unrelated PM2 apps remain untouched.

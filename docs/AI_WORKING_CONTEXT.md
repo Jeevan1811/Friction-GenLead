@@ -161,3 +161,10 @@ Last updated: 2026-09-24 (Asia/Singapore)
 - This update supersedes the pre-write snapshot immediately above.
 - One owner-approved query, Gladstone, Queensland, Australia · Heavy Industry, completed and synced to Google Sheets: 30 companies, 29 locations, and 1 contact. Dashboard counts moved 4,199 / 6,331 / 1,707 / 0 searches to 4,229 / 6,360 / 1,708 / 1 search. No second search was submitted.
 - The run exposed two Search History display issues: city queries showed `Postcode`, and completed runs showed `APPROVED` even though candidates await human review. Fixes are on `codex/genlead-search-history-location`; build/deploy and browser verification remain pending. The data flow is verified for this single approved query, not as a guarantee of complete source coverage or candidate accuracy.
+
+## Final post-deploy verification — 2026-09-26
+
+- This supersedes the pending-deploy note above. PR #7 merged as `b401670f43382807e1f133e008a86de11df0811e`; the VPS is at that commit. The web production build passed and only `frictiongenlead-web` was restarted; API stayed online and health returned `ok`.
+- Live browser verification now shows `Location: Gladstone, Queensland, Australia` and `COMPLETED` on Search History and the Recent Searches card. Counts remain 4,229 companies / 6,360 locations / 1,708 contacts / 1 search, and the dashboard reports `Synced`. Locations map loaded with clusters and OSM attribution; browser error log was empty.
+- The single approved production run confirms the search-to-Sheets path for that query only. Public-source coverage is uneven and candidates/contacts still require human review. No second search was submitted.
+- Trusted-device locking remains deferred; no `.env`, credential, OTP, unrelated PM2 process, or existing source row was touched. VPS untracked SMTP backup, PM2 config, and research venv remain present.

@@ -734,7 +734,7 @@ export default function SearchPage() {
                     {run.contactsFound}
                   </div>
                   <StatusBadge
-                    status={run.status === "running" ? "VERIFYING" : run.status === "completed" ? "APPROVED" : run.status === "failed" ? "ERROR" : "STALE"}
+                    status={run.status === "running" ? "VERIFYING" : run.status === "completed" ? "COMPLETED" : run.status === "failed" ? "ERROR" : "STALE"}
                     showDot
                   />
                 </div>

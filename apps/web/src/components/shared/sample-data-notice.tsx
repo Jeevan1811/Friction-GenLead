@@ -1,10 +1,8 @@
 import { AlertTriangle } from "lucide-react";
 
 /**
- * Automated research (Search page / Searches history) is not connected to the
- * real Australian Business Register or a real contact finder yet -- it returns
- * demonstration companies. Say so plainly wherever its results appear, so
- * nobody mistakes them for real prospects.
+ * Automated research is intentionally unavailable until live company and
+ * contact sources are connected. No sample prospects are presented as real.
  */
 export function SampleDataNotice() {
   return (
@@ -26,10 +24,10 @@ export function SampleDataNotice() {
     >
       <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: "2px" }} />
       <div>
-        <strong>Automated research uses sample data for now.</strong> It isn&apos;t connected to the
-        Australian Business Register or a live contact finder yet, so the companies and contacts it
-        produces are examples, not real prospects. Your real customer data is on the Companies,
-        Locations and Contacts pages.
+        <strong>New prospect searches are not connected yet.</strong> The live company registry and
+        contact-finder integrations are not configured, so GenLead will not create or display
+        sample prospects. The workbook data already imported is available on Companies, Locations
+        and Contacts.
       </div>
     </div>
   );

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Building2, Users, Clock, CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { getJobs } from "@/lib/api";
 import type { JobRun } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { SampleDataNotice } from "@/components/shared/sample-data-notice";
+import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
 
 const statusConfig: Record<
   string,
@@ -16,6 +17,7 @@ const statusConfig: Record<
   completed: { icon: CheckCircle2, color: "var(--color-success)", badgeStatus: "APPROVED" },
   failed: { icon: XCircle, color: "var(--color-error)", badgeStatus: "ERROR" },
   cancelled: { icon: Clock, color: "var(--color-text-muted)", badgeStatus: "STALE" },
+  interrupted: { icon: Clock, color: "var(--color-text-muted)", badgeStatus: "STALE" },
 };
 
 export default function SearchesPage() {
@@ -23,27 +25,21 @@ export default function SearchesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
+  const load = useCallback(async (initial = false) => {
+      if (initial) setLoading(true);
       setError(null);
       try {
         const data = await getJobs();
-        if (!cancelled) setSearchRuns(data);
+        setSearchRuns(data);
       } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load search history");
-        }
+        setError(err instanceof Error ? err.message : "Failed to load search history");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (initial) setLoading(false);
       }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => { void load(true); }, [load]);
+  useSheetAutoRefresh(() => load());
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -59,7 +55,7 @@ export default function SearchesPage() {
   return (
     <div style={{ padding: "24px", maxWidth: "900px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
+        <h1 data-tour="searches-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
           Search History
         </h1>
         <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginTop: "4px" }}>
@@ -173,7 +169,11 @@ export default function SearchesPage() {
                       Started {formatDate(run.createdAt)}
                     </div>
 
-                    {/* Results */}
+                    {run.errorSummary && (
+                      <p style={{ margin: "0 0 8px", color: "var(--color-error)", fontSize: "12px" }}>{run.errorSummary}</p>
+                    )}
+
+                    {/* Summary counts are saved; full result records live in canonical tabs. */}
                     <div style={{ display: "flex", gap: "16px" }}>
                       <div
                         style={{
@@ -203,27 +203,11 @@ export default function SearchesPage() {
                   </div>
                 </div>
 
-                {/* Progress bar for running searches */}
+                {/* No estimated percentage: the backend does not report real progress. */}
                 {isRunning && (
-                  <div
-                    style={{
-                      marginTop: "16px",
-                      height: 3,
-                      borderRadius: 2,
-                      background: "var(--color-border)",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: "60%",
-                        height: "100%",
-                        borderRadius: 2,
-                        background: "var(--color-warning)",
-                        animation: "progress 2s ease-in-out infinite",
-                      }}
-                    />
-                  </div>
+                  <p style={{ margin: "14px 0 0", fontSize: "11px", color: "var(--color-text-muted)" }}>
+                    Research is still running. Status updates when the service records a step.
+                  </p>
                 )}
               </div>
             );
@@ -235,11 +219,6 @@ export default function SearchesPage() {
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
-        }
-        @keyframes progress {
-          0% { width: 20%; margin-left: 0; }
-          50% { width: 60%; margin-left: 20%; }
-          100% { width: 20%; margin-left: 80%; }
         }
       `}</style>
     </div>

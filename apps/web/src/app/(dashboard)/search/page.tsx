@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Search,
   ChevronDown,
@@ -18,6 +18,7 @@ import { useToast } from "@/components/ui/toast";
 import { startResearch, getJobs } from "@/lib/api";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { SampleDataNotice } from "@/components/shared/sample-data-notice";
+import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
 
 const INDUSTRIES = [
   "Mining",
@@ -69,29 +70,23 @@ export default function SearchPage() {
   const [searchRunsError, setSearchRunsError] = useState<string | null>(null);
   const { toast } = useToast();
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setSearchRunsLoading(true);
+  const loadSearchRuns = useCallback(async (initial = false) => {
+      if (initial) setSearchRunsLoading(true);
       setSearchRunsError(null);
       try {
         const data = await getJobs();
-        if (!cancelled) setSearchRuns(data);
+        setSearchRuns(data);
       } catch (err) {
-        if (!cancelled) {
-          setSearchRunsError(
-            err instanceof Error ? err.message : "Failed to load recent searches"
-          );
-        }
+        setSearchRunsError(
+          err instanceof Error ? err.message : "Failed to load recent searches"
+        );
       } finally {
-        if (!cancelled) setSearchRunsLoading(false);
+        if (initial) setSearchRunsLoading(false);
       }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => { void loadSearchRuns(true); }, [loadSearchRuns]);
+  useSheetAutoRefresh(() => loadSearchRuns());
 
   const toggleRole = (role: string) => {
     setSelectedRoles((prev) =>
@@ -116,7 +111,9 @@ export default function SearchPage() {
     setPostcodeError("");
   };
 
+  const researchSourceReady = false;
   const canSubmit =
+    researchSourceReady &&
     postcode.length === 4 &&
     !postcodeError &&
     selectedRoles.length > 0;
@@ -134,6 +131,7 @@ export default function SearchPage() {
     <div style={{ padding: "24px", maxWidth: "800px" }}>
       <div style={{ marginBottom: "24px" }}>
         <h1
+          data-tour="search-overview"
           style={{
             fontSize: "28px",
             fontWeight: 600,
@@ -435,7 +433,7 @@ export default function SearchPage() {
           ) : (
             <Zap size={16} />
           )}
-          {submitting ? "Starting..." : "Start Research"}
+          {submitting ? "Starting..." : researchSourceReady ? "Start Research" : "Research not connected"}
         </button>
         {!canSubmit && postcode.length > 0 && selectedRoles.length === 0 && (
           <p
@@ -506,7 +504,7 @@ export default function SearchPage() {
                 color: "var(--color-text-muted)",
               }}
             >
-              No searches yet. Start your first one above.
+              No saved research runs yet. Search will become available when live company and contact sources are connected.
             </p>
           </div>
         ) : (

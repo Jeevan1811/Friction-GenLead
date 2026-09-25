@@ -79,6 +79,8 @@ def test_data_answer_is_not_padded_with_unrelated_guides(seeded):
     ("how do I start a research for a postcode", "research"),
     ("can I export to excel", "sheet-sync"),
     ("how do I edit a company's website", "sheet-sync"),
+    ("where do I restart the dashboard guide", "dashboard-tour"),
+    ("show me the dashboard tour", "dashboard-tour"),
 ])
 def test_guide_matching(question, guide_id):
     assert assistant._best_guide(question).id == guide_id
@@ -101,6 +103,13 @@ def test_every_guide_marker_is_real():
         assert set(g.shots) <= KNOWN_SHOTS
 
 
+def test_dashboard_tour_guide_points_to_settings_and_is_non_mutating():
+    guide = next(g for g in GUIDES if g.id == "dashboard-tour")
+    assert guide.open == ("/settings", "Open Settings")
+    assert guide.open[0] in KNOWN_PATHS
+    assert any("does not submit forms" in note for note in guide.notes)
+
+
 def test_research_guide_is_honest_about_sample_data():
     research = next(g for g in GUIDES if g.id == "research")
-    assert any("sample" in n.lower() for n in research.notes)
+    assert any("disabled" in n.lower() or "fabricated" in n.lower() for n in research.notes)

@@ -34,6 +34,11 @@ export interface Company {
   lastVerified?: string;
   lastModified: string;
   notes?: string;
+  sourceVerification?: string;
+  businessLandlines?: string;
+  legacySourceText?: string;
+  sourceProvenance?: string;
+  sourceQualityFlags?: string;
 }
 
 export interface Location {
@@ -50,6 +55,9 @@ export interface Location {
   verificationStatus: string;
   lastVerified?: string;
   lastModified: string;
+  rawPostcode?: string;
+  sourceProvenance?: string;
+  sourceQualityFlags?: string;
 }
 
 export interface Contact {
@@ -67,6 +75,34 @@ export interface Contact {
   contactStatus: string;
   lastVerified?: string;
   lastModified: string;
+  professionalUrlRaw?: string;
+  sourceProvenance?: string;
+  sourceQualityFlags?: string;
+}
+
+export interface SourceRecord {
+  sourceRecordId: string;
+  recordType: string;
+  companyId?: string | null;
+  companyName?: string | null;
+  sourceWorkbook: string;
+  sourceSheet: string;
+  sourceRow: string;
+  sourceField: string;
+  postcodeRaw?: string | null;
+  contactName?: string | null;
+  landlineRaw?: string | null;
+  verificationSourceRaw?: string | null;
+  legacySourceText?: string | null;
+  rawDataJson: string;
+  sourceSha256: string;
+}
+
+export interface SourceRecordPage {
+  items: SourceRecord[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface RejectedEntity {
@@ -103,6 +139,9 @@ export interface SyncStatus {
   locationsCount: number;
   contactsCount: number;
   rejectionsCount: number;
+  activitiesCount?: number;
+  searchRunsCount?: number;
+  sourceRecordsCount?: number;
   syncLogEntries: number;
   lastSync: string | null;
   state: "SYNCED" | "PENDING" | "ERROR" | "NEVER";
@@ -123,8 +162,27 @@ export interface JobRun {
   jobId: string;
   postcode: string;
   industry?: string | null;
-  status: string; // "running" | "completed" | "failed" | "cancelled"
+  status: string; // includes "interrupted" when a service restart stopped an in-flight job
   companiesFound: number;
   contactsFound: number;
   createdAt: string;
+  updatedAt?: string;
+  roles?: string[];
+  errorSummary?: string;
+}
+
+export interface CompanyActivity {
+  activityId: string;
+  companyId: string;
+  contactId?: string | null;
+  companyName?: string;
+  activityType: "call" | "email" | "meeting" | "note";
+  outcome?: string | null;
+  notes: string;
+  happenedAt: string;
+  followUpAt?: string | null;
+  followUpStatus?: "OPEN" | "COMPLETED" | string | null;
+  followUpCompletedAt?: string | null;
+  createdAt: string;
+  syncStatus?: string;
 }

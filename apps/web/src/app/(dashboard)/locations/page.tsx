@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { LayoutGrid, List, Search } from "lucide-react";
 import { getLocations, getCompanies } from "@/lib/api";
 import type { Location, Company } from "@/lib/types";
@@ -8,11 +8,12 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { GlobeView } from "@/components/shared/globe-view";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { Pager, PAGE_SIZE } from "@/components/shared/pager";
+import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
 
 type ViewMode = "list" | "grid";
 
 const locationTypes = ["ALL", "PLANT", "MINE", "OFFICE", "DEPOT", "PROJECT", "OTHER"];
-const verificationStatuses = ["ALL", "VERIFIED", "VERIFYING", "UNVERIFIED", "CLOSED", "DISPUTED"];
+const verificationStatuses = ["ALL", "APPROVED", "VERIFIED", "VERIFYING", "UNVERIFIED", "CLOSED", "DISPUTED"];
 
 export default function LocationsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -24,31 +25,25 @@ export default function LocationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
+  const load = useCallback(async (initial = false) => {
+      if (initial) setLoading(true);
       setError(null);
       try {
         const [locationsData, companiesData] = await Promise.all([
           getLocations(),
           getCompanies(),
         ]);
-        if (cancelled) return;
         setLocations(locationsData);
         setCompanies(companiesData);
       } catch (err) {
-        if (cancelled) return;
         setError(err instanceof Error ? err.message : "Failed to load locations");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (initial) setLoading(false);
       }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => { void load(true); }, [load]);
+  useSheetAutoRefresh(() => load());
 
   const companyById = useMemo(
     () => new Map(companies.map((c) => [c.companyId, c])),
@@ -66,6 +61,7 @@ export default function LocationsPage() {
           loc.siteName.toLowerCase().includes(q) ||
           loc.suburb?.toLowerCase().includes(q) ||
           loc.postcode.includes(q) ||
+          loc.rawPostcode?.toLowerCase().includes(q) ||
           company?.companyName.toLowerCase().includes(q)
         );
       }
@@ -85,7 +81,7 @@ export default function LocationsPage() {
   return (
     <div style={{ padding: "24px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
+        <h1 data-tour="locations-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
           Locations
         </h1>
         <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginTop: "4px" }}>

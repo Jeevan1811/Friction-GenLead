@@ -7,6 +7,7 @@ import { Header } from "@/components/layout/header";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { CommandPalette } from "@/components/shared/command-palette";
 import { ChatSidebar } from "@/components/shared/chat-sidebar";
+import { DashboardTourProvider } from "@/components/shared/dashboard-tour";
 import { ToastProvider } from "@/components/ui/toast";
 
 export default function DashboardLayout({
@@ -48,6 +49,7 @@ export default function DashboardLayout({
   if (isMobile) {
     return (
       <ToastProvider>
+        <DashboardTourProvider>
         <div
           style={{
             display: "flex",
@@ -74,12 +76,14 @@ export default function DashboardLayout({
           <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
           <ChatSidebar />
         </div>
+        </DashboardTourProvider>
       </ToastProvider>
     );
   }
 
   return (
     <ToastProvider>
+      <DashboardTourProvider>
       <div style={{ display: "flex", minHeight: "100dvh" }}>
         <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
         <div
@@ -112,6 +116,7 @@ export default function DashboardLayout({
         <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
         <ChatSidebar />
       </div>
+      </DashboardTourProvider>
     </ToastProvider>
   );
 }

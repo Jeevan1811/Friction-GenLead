@@ -41,21 +41,25 @@ the dashboard share.
 Company -> Location -> Contact: a company can have several locations (plant, \
 mine, office, depot, project), and each location can have contacts.
 
-Pages (left sidebar): Search, Companies, Locations, Contacts, Searches, Rejected.
+Pages (left sidebar): Search, Companies, Locations, Contacts, Original data, Follow-ups, Searches, Rejected and Settings.
 Human approval is always required: nothing is approved or rejected \
 automatically -- a person clicks Approve or Reject.
 """
 
 LIMITATIONS = """\
 Be honest about these -- do not describe them as working:
-- Automated postcode research (the Search page, "Start Research") currently \
-runs on SAMPLE data. The Australian Business Register (ABR) lookup and the \
-website contact finder are not connected to the real services yet, so the \
-companies and contacts it produces are demonstration examples, not real \
+- Automated postcode research is disabled until live company and contact \
+sources are connected. The API rejects attempts instead of returning sample \
 prospects. Real customer/target data lives on the Companies, Locations and \
 Contacts pages (imported from the client's Excel files).
-- Research results are not saved to the Sheet and the Searches history is \
-cleared whenever the server restarts.
+- Search-run summaries are stored in the Google Sheet and survive restarts. \
+Detailed prospect results are not persisted because live research is not \
+connected.
+- Company activity notes and scheduled follow-ups are stored in the Sheet; \
+open and completed follow-ups can be tracked from the Follow-ups page.
+- Original source rows from the supplied Excel workbooks are kept in the \
+  SourceRecords tab and searchable on Original data; imported values are not \
+  independently verified just because they are preserved.
 - There is no "Add company" / "Edit" form, no export button and no undo for \
 Reject yet. To add or change details, edit the Google Sheet directly; to get \
 a file, use File > Download in Google Sheets.
@@ -77,11 +81,25 @@ GUIDES: tuple[Guide, ...] = (
             "Use the left sidebar to move between Search, Companies, Locations, Contacts, Searches and Rejected.",
             "Open Companies to browse everyone in the database; click a company to see its sites and contacts.",
             "Review records and click Approve or Reject -- your decision is saved to the Google Sheet.",
-            "Anything you change directly in the Google Sheet shows up in the dashboard within about 15 seconds of refreshing.",
+            "Changes you make directly in the Google Sheet appear automatically in an open dashboard page within about 30 seconds, or when you return to the page.",
         ),
         notes=("The green 'Synced' dot in the sidebar means the dashboard is connected to the Google Sheet.",),
         open=("/companies", "Open Companies"),
         shots=("companies-list",),
+    ),
+    Guide(
+        id="dashboard-tour",
+        title="Start or replay the dashboard guide",
+        keywords=("dashboard guide", "show me the dashboard tour", "replay the tour",
+                  "restart the tour", "tour again", "interactive walkthrough"),
+        summary="The dashboard guide walks through the real GenLead screens and explains what is live today.",
+        steps=(
+            "Open Settings from the left sidebar or your profile menu at the top right.",
+            "Choose 'Start dashboard guide'. Use Back, Next or Skip to move through the screens; Escape also closes the guide.",
+            "The guide explains that new searches are disabled until live sources are connected, while search summaries and call notes are stored in the Sheet.",
+        ),
+        notes=("The guide only highlights screens. It does not submit forms or change company, location or contact data.",),
+        open=("/settings", "Open Settings"),
     ),
     Guide(
         id="find-company",
@@ -167,6 +185,20 @@ GUIDES: tuple[Guide, ...] = (
         shots=("contacts",),
     ),
     Guide(
+        id="source-data",
+        title="Search the original Excel source rows",
+        keywords=("original data", "source data", "raw data", "source rows", "excel fields", "workbook", "landline without contact", "verification source", "smc", "missing data"),
+        summary="Original data keeps the source workbook rows searchable without forcing every source value into a guessed company, location or contact.",
+        steps=(
+            "Open Original data from the sidebar or the mobile navigation.",
+            "Search by company, contact, phone, postcode, source note or any other cell value from the original row.",
+            "Open 'View all original fields' to see every nonblank cell with its original column label and Excel row location.",
+            "Rows that cannot be safely linked to a company remain visible as unmatched source rows; nothing is guessed or discarded.",
+        ),
+        notes=("The workbook values are preserved as supplied; preservation does not mean that a phone number, postcode, or source note has been independently verified.",),
+        open=("/source-data", "Open Original data"),
+    ),
+    Guide(
         id="rejected",
         title="The Rejected page",
         keywords=("rejected", "rejections", "declined", "removed", "history of rejections", "undo", "restore", "bring back"),
@@ -180,20 +212,32 @@ GUIDES: tuple[Guide, ...] = (
         shots=("rejected",),
     ),
     Guide(
+        id="follow-ups",
+        title="Log a call and track follow-ups",
+        keywords=("follow-up", "follow up", "call note", "log a call", "track calls", "activity", "meeting notes", "mark done"),
+        summary="Company activity notes are append-only and saved to the live Google Sheet; scheduled next steps appear on Follow-ups.",
+        steps=(
+            "Open Companies and click the company row to open its details.",
+            "In Call notes & follow-ups, choose Call, Email, Meeting or Note; optionally link a contact and enter the outcome and notes.",
+            "Add a follow-up date if needed, then save. GenLead confirms only after the live Sheet write succeeds; if the save fails, your text stays in the form for retry.",
+            "Open Follow-ups from the sidebar to see upcoming and overdue items. Mark one done when finished; reopen it if plans change.",
+        ),
+        open=("/follow-ups", "Open Follow-ups"),
+    ),
+    Guide(
         id="research",
         title="Start a research search for a postcode",
         keywords=("research", "a research", "run research", "start research", "research for", "research a", "new search", "postcode search", "discover", "prospect", "find new",
                   "search page", "jev", "abr", "pipeline", "generate leads", "new leads"),
-        summary="The Search page runs an automated research job for a Queensland postcode -- but it currently uses SAMPLE data.",
+        summary="The Search page is visible, but new automated research is disabled until live sources are configured.",
         steps=(
             "Open Search from the sidebar.",
             "Enter a 4-digit Queensland postcode (4000-4999), optionally pick an industry and the target roles.",
-            "Click Start Research. Progress shows as the job runs; finished jobs appear under Recent Searches and on the Searches page.",
+            "Search is currently disabled. No sample prospects are created. Use the imported Companies, Locations and Contacts records until live research sources are connected.",
         ),
         notes=(
-            "IMPORTANT: the automated research currently produces sample/demo companies and contacts -- the "
-            "Australian Business Register lookup and website contact finder are not connected yet. Do not treat these results as real prospects.",
-            "Search results are not saved to the Sheet, and the Searches history resets when the server restarts.",
+            "The backend returns a clear unavailable message rather than fabricated companies or contacts.",
+            "Search history stores summary fields only; no detailed results exist to save until the live provider is connected.",
         ),
         open=("/search", "Open Search"),
         shots=("search",),
@@ -207,10 +251,10 @@ GUIDES: tuple[Guide, ...] = (
                   "update a company", "website", "wrong", "incorrect", "change the"),
         summary="The Google Sheet is the database. The dashboard reads from it and writes decisions back to it.",
         steps=(
-            "The Sheet has tabs: Companies, Locations, Contacts, Rejected and SyncLog. Tabs starting with _STAGING_ are the original import kept as a backup -- ignore them.",
-            "To correct or add details, edit the row directly in the Google Sheet. Refresh the dashboard: changes appear within about 15 seconds.",
+            "The Sheet has tabs: Companies, Locations, Contacts, SourceRecords, Rejected and SyncLog. SourceRecords keeps the full nonblank rows from both supplied workbooks; tabs starting with _STAGING_ remain migration backups.",
+            "To correct or add details, edit a canonical row directly in the Google Sheet. An open dashboard page checks for changes about every 30 seconds and also refreshes when you return to it.",
             "To add a new company, add a row to the Companies tab with a unique company_id, then link its location and contact rows using the same company_id.",
-            "Don't rename tabs, reorder or delete columns, or remove the header row -- the dashboard depends on them.",
+            "Keep the tab names and header row. The dashboard maps columns by header, so column order can change; avoid renaming a header unless you know which app field it represents.",
             "The sidebar shows 'Synced' when connected. If a save ever fails you'll see 'Pending' instead -- it is never shown as synced unless it really saved.",
         ),
         notes=("The Notes and Priority columns belong to you -- the system never overwrites them.",),
@@ -241,8 +285,8 @@ GUIDES: tuple[Guide, ...] = (
                   "duplicates", "missing", "blank", "no abn", "no contact", "postcode missing", "data quality", "accuracy"),
         summary="The database was built from the client's two Excel files (Master QLD Customers and Customers - Targets - QLD).",
         steps=(
-            "The import produced one record per company, plus its sites and contacts, with duplicates merged.",
-            "Many older records have no ABN, no contact or no full address -- the Excel files didn't have them. 'No Contact' tab on Companies lists those.",
+            "The canonical import groups companies, sites and named contacts. Original data also keeps each nonblank source row searchable, including values that should not be attached to a guessed contact.",
+            "Some source rows have a landline but no named contact, verification notes, raw postcodes or SMC text. Search Original data for those exact source fields; 'No Contact' on Companies identifies businesses without a named contact record.",
             "If a postcode in the Excel looked like a phone number it was left blank rather than guessed.",
             "LinkedIn links from the Excel were not verified, so they are not shown as trusted links.",
             "Check and correct records as you review them -- edit the Google Sheet or approve/reject in the dashboard.",
@@ -266,7 +310,7 @@ GUIDES: tuple[Guide, ...] = (
     ),
 )
 
-KNOWN_PATHS = frozenset({"/search", "/companies", "/locations", "/contacts", "/searches", "/rejected"})
+KNOWN_PATHS = frozenset({"/search", "/companies", "/locations", "/contacts", "/source-data", "/follow-ups", "/searches", "/rejected", "/settings"})
 KNOWN_SHOTS = frozenset(s for g in GUIDES for s in g.shots)
 
 

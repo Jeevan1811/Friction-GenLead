@@ -17,6 +17,7 @@ class CompanyStatus(StrEnum):
 class LocationStatus(StrEnum):
     UNVERIFIED = "UNVERIFIED"
     VERIFYING = "VERIFYING"
+    APPROVED = "APPROVED"
     VERIFIED = "VERIFIED"
     CLOSED = "CLOSED"
     DISPUTED = "DISPUTED"

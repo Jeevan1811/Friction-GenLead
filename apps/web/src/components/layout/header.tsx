@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Search, Bell, LogOut } from "lucide-react";
+import { Search, Bell, LogOut, Settings } from "lucide-react";
 import { Dropdown } from "@/components/ui/dropdown";
 
 const pageTitles: Record<string, string> = {
@@ -11,8 +11,10 @@ const pageTitles: Record<string, string> = {
   "/companies": "Companies",
   "/locations": "Locations",
   "/contacts": "Contacts",
+  "/follow-ups": "Follow-ups",
   "/searches": "Search History",
   "/rejected": "Rejected",
+  "/settings": "Settings",
 };
 
 interface HeaderProps {
@@ -205,6 +207,11 @@ export function Header({ onOpenCommandPalette }: HeaderProps) {
                   { kind: "separator" as const },
                 ]
               : []),
+            {
+              label: "Settings",
+              icon: Settings,
+              onClick: () => router.push("/settings"),
+            },
             { label: "Log out", icon: LogOut, onClick: handleLogout, destructive: true },
           ]}
         />

@@ -13,6 +13,7 @@ export type CompanyStatus = (typeof CompanyStatus)[keyof typeof CompanyStatus];
 export const LocationStatus = {
   UNVERIFIED: "UNVERIFIED",
   VERIFYING: "VERIFYING",
+  APPROVED: "APPROVED",
   VERIFIED: "VERIFIED",
   CLOSED: "CLOSED",
   DISPUTED: "DISPUTED",

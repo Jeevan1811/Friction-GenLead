@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Building2,
@@ -9,50 +9,12 @@ import {
   AlertCircle,
   Search,
   ArrowRight,
-  Clock,
-  CheckCircle2,
+  BookOpenText,
 } from "lucide-react";
 import { getCompanies, getLocations, getContacts } from "@/lib/api";
 import type { Company, Location, Contact } from "@/lib/types";
 import { PageLoading, PageError } from "@/components/shared/page-status";
-
-const recentActivity = [
-  {
-    id: "1",
-    text: "CS Energy Ltd approved",
-    time: "2h ago",
-    icon: CheckCircle2,
-    color: "var(--color-success)",
-  },
-  {
-    id: "2",
-    text: "Search completed for postcode 4680",
-    time: "5h ago",
-    icon: Search,
-    color: "var(--color-info)",
-  },
-  {
-    id: "3",
-    text: "Stanwell Corporation moved to review",
-    time: "1d ago",
-    icon: AlertCircle,
-    color: "var(--color-warning)",
-  },
-  {
-    id: "4",
-    text: "New search started for postcode 4715",
-    time: "1d ago",
-    icon: Clock,
-    color: "var(--color-text-muted)",
-  },
-  {
-    id: "5",
-    text: "Aurizon Holdings rejected",
-    time: "2d ago",
-    icon: AlertCircle,
-    color: "var(--color-error)",
-  },
-];
+import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
 
 export default function DashboardPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -61,10 +23,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
+  const load = useCallback(async (initial = false) => {
+      if (initial) setLoading(true);
       setError(null);
       try {
         const [companiesData, locationsData, contactsData] = await Promise.all([
@@ -72,22 +32,18 @@ export default function DashboardPage() {
           getLocations(),
           getContacts(),
         ]);
-        if (cancelled) return;
         setCompanies(companiesData);
         setLocations(locationsData);
         setContacts(contactsData);
       } catch (err) {
-        if (cancelled) return;
         setError(err instanceof Error ? err.message : "Failed to load dashboard data");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (initial) setLoading(false);
       }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => { void load(true); }, [load]);
+  useSheetAutoRefresh(() => load());
 
   const reviewQueueCount = companies.filter(
     (c) => c.status === "REVIEW" || c.status === "NEW"
@@ -129,7 +85,7 @@ export default function DashboardPage() {
   return (
     <div style={{ padding: "24px", maxWidth: "1200px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
+        <h1 data-tour="dashboard-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
           Dashboard
         </h1>
         <p
@@ -359,7 +315,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Recent Activity */}
+        {/* Honest next step; the old activity list was hard-coded demo content. */}
         <div className="surface-card" style={{ padding: "20px" }}>
           <h3
             style={{
@@ -369,48 +325,21 @@ export default function DashboardPage() {
               color: "var(--color-text)",
             }}
           >
-            Recent Activity
+            A useful next step
           </h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-            {recentActivity.map((item) => {
-              const Icon = item.icon;
-              return (
-                <div
-                  key={item.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "12px",
-                    padding: "10px 8px",
-                    borderRadius: "var(--radius-sm)",
-                    transition: "background var(--transition-fast)",
-                  }}
-                >
-                  <Icon
-                    size={16}
-                    style={{ color: item.color, flexShrink: 0 }}
-                  />
-                  <span
-                    style={{
-                      flex: 1,
-                      fontSize: "13px",
-                      color: "var(--color-text)",
-                    }}
-                  >
-                    {item.text}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: "11px",
-                      color: "var(--color-text-muted)",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {item.time}
-                  </span>
-                </div>
-              );
-            })}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
+            <BookOpenText size={18} style={{ color: "var(--color-accent)", flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginBottom: "12px" }}>
+                Review the imported company records first. Postcode research and new-contact discovery are still in sample mode, so their examples are not real prospects.
+              </p>
+              <Link
+                href="/settings"
+                style={{ color: "var(--color-accent)", fontSize: "13px", fontWeight: 600, textDecoration: "none" }}
+              >
+                Open the dashboard guide <ArrowRight size={14} style={{ verticalAlign: "-2px", marginLeft: 4 }} />
+              </Link>
+            </div>
           </div>
         </div>
       </div>

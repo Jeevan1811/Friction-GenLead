@@ -11,6 +11,8 @@ step route to manual review -- Jev never fails silently.
 """
 
 import asyncio
+import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -19,6 +21,9 @@ from enum import StrEnum
 from app.services.abr import ABRAdapter
 from app.services.crawler import WebsiteCrawler, SSRFError, CrawlLimitError
 from app.services.resolver import EntityResolver, normalize_company_name
+from app.services.sheets import GoogleSheetsAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class StepStatus(StrEnum):
@@ -47,11 +52,23 @@ class ResearchJob:
     target_roles: list[str]
     status: str = "running"
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     steps: list[PipelineStep] = field(default_factory=list)
     companies_found: list[dict] = field(default_factory=list)
     contacts_found: list[dict] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    historical_companies_count: int | None = None
+    historical_contacts_count: int | None = None
+    details_available: bool = True
+
+    @property
+    def companies_count(self) -> int:
+        return self.historical_companies_count if self.historical_companies_count is not None else len(self.companies_found)
+
+    @property
+    def contacts_count(self) -> int:
+        return self.historical_contacts_count if self.historical_contacts_count is not None else len(self.contacts_found)
 
 
 # In-memory job store (production would use Redis or similar)
@@ -69,10 +86,11 @@ class Jev:
     - Rate limits and SSRF protection are enforced
     """
 
-    def __init__(self):
+    def __init__(self, sheets: GoogleSheetsAdapter | None = None):
         self.abr = ABRAdapter()
         self.crawler = WebsiteCrawler()
         self.resolver = EntityResolver()
+        self.sheets = sheets
 
     async def start_research(
         self,
@@ -99,44 +117,124 @@ class Jev:
         )
         _jobs[job.job_id] = job
 
+        await self._persist_job(job)
+
         # Run pipeline in background
         asyncio.create_task(self._run_pipeline(job))
         return job
 
     async def get_job(self, job_id: str) -> ResearchJob | None:
-        return _jobs.get(job_id)
+        current = _jobs.get(job_id)
+        if current:
+            return current
+        if self.sheets:
+            rows = await self.sheets.read_search_runs()
+            row = next((r for r in rows if str(r.get("job_id")) == job_id), None)
+            if row:
+                return self._job_from_run_row(row)
+        return None
 
     async def list_jobs(self) -> list[ResearchJob]:
-        return list(_jobs.values())
+        persisted: dict[str, ResearchJob] = {}
+        if self.sheets:
+            try:
+                for row in await self.sheets.read_search_runs():
+                    job = self._job_from_run_row(row)
+                    if job.job_id:
+                        if job.status == "running" and job.job_id not in _jobs:
+                            job.status = "interrupted"
+                        persisted[job.job_id] = job
+            except Exception:
+                logger.exception("Unable to load persisted research history")
+        persisted.update(_jobs)
+        return sorted(persisted.values(), key=lambda j: j.created_at, reverse=True)
 
     async def cancel_job(self, job_id: str) -> bool:
         job = _jobs.get(job_id)
         if job and job.status == "running":
             job.status = "cancelled"
+            await self._persist_job(job)
             return True
         return False
+
+    @staticmethod
+    def _job_from_run_row(row: dict) -> ResearchJob:
+        try:
+            created_at = datetime.fromisoformat(str(row.get("created_at", "")))
+        except ValueError:
+            created_at = datetime.now(timezone.utc)
+        try:
+            updated_at = datetime.fromisoformat(str(row.get("updated_at", "")))
+        except ValueError:
+            updated_at = created_at
+        roles_value = row.get("roles", "[]")
+        try:
+            roles = json.loads(roles_value) if isinstance(roles_value, str) else roles_value
+        except (json.JSONDecodeError, TypeError):
+            roles = []
+        job = ResearchJob(
+            job_id=str(row.get("job_id", "")),
+            postcode=str(row.get("postcode", "")),
+            industry=row.get("industry") or None,
+            target_roles=roles if isinstance(roles, list) else [],
+            status=str(row.get("status", "failed")),
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+        job.historical_companies_count = _safe_int(row.get("companies_found"))
+        job.historical_contacts_count = _safe_int(row.get("contacts_found"))
+        job.details_available = False
+        error_summary = str(row.get("error_summary", "")).strip()
+        if error_summary:
+            job.errors.append(error_summary)
+        return job
+
+    async def _persist_job(self, job: ResearchJob) -> None:
+        """Write only the durable run summary; result rows remain in canonical tabs."""
+        if not self.sheets:
+            return
+        job.updated_at = datetime.now(timezone.utc)
+        result = await self.sheets.upsert_search_run({
+            "job_id": job.job_id,
+            "postcode": job.postcode,
+            "industry": job.industry or "",
+            "roles": json.dumps(job.target_roles),
+            "status": job.status,
+            "companies_found": len(job.companies_found),
+            "contacts_found": len(job.contacts_found),
+            "created_at": job.created_at.isoformat(),
+            "updated_at": job.updated_at.isoformat(),
+            "error_summary": "; ".join(job.errors)[:1000],
+        })
+        if result.value != "SYNCED":
+            logger.warning("Research history for %s could not be persisted", job.job_id)
 
     async def _run_pipeline(self, job: ResearchJob) -> None:
         """Execute the full research pipeline."""
         try:
             await self._step_discover(job)
+            await self._persist_job(job)
             if job.status == "cancelled":
                 return
 
             await self._step_verify(job)
+            await self._persist_job(job)
             if job.status == "cancelled":
                 return
 
             await self._step_research_contacts(job)
+            await self._persist_job(job)
             if job.status == "cancelled":
                 return
 
             await self._step_evaluate(job)
 
             job.status = "completed"
+            await self._persist_job(job)
         except Exception as e:
             job.status = "failed"
             job.errors.append(f"Pipeline error: {str(e)}")
+            await self._persist_job(job)
 
     async def _step_discover(self, job: ResearchJob) -> None:
         """Step 1: Discover companies in the postcode area."""
@@ -227,6 +325,13 @@ class Jev:
         step.result = {"verified": verified_count, "needs_review": review_count}
         step.status = StepStatus.COMPLETED
         step.completed_at = datetime.now(timezone.utc)
+
+
+def _safe_int(value: object) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
     async def _step_research_contacts(self, job: ResearchJob) -> None:
         """Step 3: Find contacts via website crawling."""

@@ -11,6 +11,7 @@ import {
   XCircle,
   ArrowRight,
   Plus,
+  FileSearch,
 } from "lucide-react";
 
 interface CommandItem {
@@ -66,6 +67,14 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
       icon: <Users size={16} />,
       action: () => { router.push("/contacts"); onClose(); },
       keywords: ["people", "person", "email"],
+    },
+    {
+      id: "nav-source-data",
+      label: "Original Source Data",
+      group: "Navigation",
+      icon: <FileSearch size={16} />,
+      action: () => { router.push("/source-data"); onClose(); },
+      keywords: ["excel", "workbook", "import", "raw", "source", "landline", "postcode"],
     },
     {
       id: "nav-searches",

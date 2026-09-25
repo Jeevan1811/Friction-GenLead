@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useDeferredValue, useRef } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { LayoutGrid, List, Search } from "lucide-react";
 import { getLocations, getCompanies } from "@/lib/api";
 import type { Location, Company } from "@/lib/types";
@@ -12,34 +14,62 @@ import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
 
 type ViewMode = "list" | "grid";
 
+function rowsAreUnchanged<T extends object>(previous: T[], next: T[]): boolean {
+  if (previous === next) return true;
+  if (previous.length !== next.length) return false;
+
+  for (let index = 0; index < previous.length; index += 1) {
+    const left = previous[index] as Record<string, unknown>;
+    const right = next[index] as Record<string, unknown>;
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    if (leftKeys.length !== rightKeys.length) return false;
+    for (const key of leftKeys) if (left[key] !== right[key]) return false;
+  }
+  return true;
+}
+
 const locationTypes = ["ALL", "PLANT", "MINE", "OFFICE", "DEPOT", "PROJECT", "OTHER"];
 const verificationStatuses = ["ALL", "APPROVED", "VERIFIED", "VERIFYING", "UNVERIFIED", "CLOSED", "DISPUTED"];
 
 export default function LocationsPage() {
+  const router = useRouter();
+  const loadInFlightRef = useRef<Promise<void> | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [locations, setLocations] = useState<Location[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (initial = false) => {
-      if (initial) setLoading(true);
-      setError(null);
+  const load = useCallback((initial = false) => {
+    if (loadInFlightRef.current) return loadInFlightRef.current;
+    if (initial) setLoading(true);
+    setError(null);
+
+    const request = (async () => {
       try {
         const [locationsData, companiesData] = await Promise.all([
           getLocations(),
           getCompanies(),
         ]);
-        setLocations(locationsData);
-        setCompanies(companiesData);
+        setLocations((current) => rowsAreUnchanged(current, locationsData) ? current : locationsData);
+        setCompanies((current) => rowsAreUnchanged(current, companiesData) ? current : companiesData);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load locations");
       } finally {
         if (initial) setLoading(false);
       }
+    })();
+
+    loadInFlightRef.current = request;
+    void request.finally(() => {
+      if (loadInFlightRef.current === request) loadInFlightRef.current = null;
+    });
+    return request;
   }, []);
 
   useEffect(() => { void load(true); }, [load]);
@@ -52,25 +82,31 @@ export default function LocationsPage() {
 
   const filtered = useMemo(() => {
     return locations.filter((loc) => {
-      if (typeFilter !== "ALL" && loc.locationType !== typeFilter) return false;
-      if (statusFilter !== "ALL" && loc.verificationStatus !== statusFilter) return false;
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
+      if (typeFilter !== "ALL" && String(loc.locationType ?? "").trim().toUpperCase() !== typeFilter) return false;
+      if (statusFilter !== "ALL" && String(loc.verificationStatus ?? "").trim().toUpperCase() !== statusFilter) return false;
+      if (deferredSearchQuery) {
+        const q = deferredSearchQuery.trim().toLowerCase();
         const company = companyById.get(loc.companyId);
-        return (
-          loc.siteName.toLowerCase().includes(q) ||
-          loc.address?.toLowerCase().includes(q) ||
-          loc.suburb?.toLowerCase().includes(q) ||
-          loc.state?.toLowerCase().includes(q) ||
-          loc.postcode.includes(q) ||
-          loc.country?.toLowerCase().includes(q) ||
-          loc.rawPostcode?.toLowerCase().includes(q) ||
-          company?.companyName.toLowerCase().includes(q)
-        );
+        return [
+          loc.siteName,
+          loc.address,
+          loc.suburb,
+          loc.state,
+          loc.postcode,
+          loc.country,
+          loc.rawPostcode,
+          company?.companyName,
+          company?.tradingName,
+        ].some((value) => String(value ?? "").toLowerCase().includes(q));
       }
       return true;
     });
-  }, [locations, companyById, typeFilter, statusFilter, searchQuery]);
+  }, [locations, companyById, typeFilter, statusFilter, deferredSearchQuery]);
+
+  const mappedCount = useMemo(
+    () => filtered.reduce((count, location) => count + (Number.isFinite(location.lat) && Number.isFinite(location.lng) ? 1 : 0), 0),
+    [filtered],
+  );
 
   const [page, setPage] = useState(0);
   useEffect(() => {
@@ -214,6 +250,21 @@ export default function LocationsPage() {
             <List size={16} />
           </button>
         </div>
+
+        <span role="status" aria-live="polite" style={{ color: "var(--color-text-muted)", fontSize: "12px", whiteSpace: "nowrap" }}>
+          {filtered.length.toLocaleString()} results · {mappedCount.toLocaleString()} mapped
+        </span>
+        {(searchQuery || typeFilter !== "ALL" || statusFilter !== "ALL") && (
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => { setSearchQuery(""); setTypeFilter("ALL"); setStatusFilter("ALL"); }}
+            aria-label="Clear location filters"
+            style={{ minHeight: "36px" }}
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {/* Content */}
@@ -237,19 +288,18 @@ export default function LocationsPage() {
           {pageRows.map((loc) => {
             const company = companyById.get(loc.companyId);
             return (
-              <div
+              <button
                 key={loc.locationId}
-                className="surface-card"
+                type="button"
+                className="surface-card location-card-button"
+                disabled={!company}
+                aria-label={company ? `Open ${company.tradingName || company.companyName} details` : undefined}
+                title={company ? "Open company details" : "No company record is linked to this location"}
+                onClick={() => company && router.push(`/companies?companyId=${encodeURIComponent(company.companyId)}`)}
                 style={{
                   padding: "16px 20px",
-                  cursor: "pointer",
-                  transition: "all var(--transition-fast)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "var(--color-accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--color-border)";
+                  textAlign: "left",
+                  width: "100%",
                 }}
               >
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "8px", marginBottom: "8px" }}>
@@ -269,7 +319,7 @@ export default function LocationsPage() {
                     .join(", ")}
                 </div>
                 <StatusBadge status={loc.verificationStatus} showDot />
-              </div>
+              </button>
             );
           })}
         </div>
@@ -302,9 +352,15 @@ export default function LocationsPage() {
                 return (
                   <tr
                     key={loc.locationId}
+                    className={company ? "genlead-location-row" : undefined}
+                    onClick={(event) => {
+                      if (company && !(event.target as HTMLElement).closest("a")) {
+                        router.push(`/companies?companyId=${encodeURIComponent(company.companyId)}`);
+                      }
+                    }}
                     style={{
                       borderBottom: "1px solid var(--color-border-subtle)",
-                      cursor: "pointer",
+                      cursor: company ? "pointer" : "default",
                       transition: "background var(--transition-fast)",
                     }}
                     onMouseEnter={(e) =>
@@ -314,7 +370,13 @@ export default function LocationsPage() {
                       (e.currentTarget.style.background = "transparent")
                     }
                   >
-                    <td style={{ padding: "12px 16px", fontWeight: 500 }}>{loc.siteName}</td>
+                    <td style={{ padding: "12px 16px", fontWeight: 500 }}>
+                      {company ? (
+                        <Link href={`/companies?companyId=${encodeURIComponent(company.companyId)}`} aria-label={`Open ${company.tradingName || company.companyName} details`} style={{ color: "inherit", textDecoration: "none" }}>
+                          {loc.siteName}
+                        </Link>
+                      ) : loc.siteName}
+                    </td>
                     <td style={{ padding: "12px 16px", color: "var(--color-text-secondary)" }}>
                       {company?.tradingName || company?.companyName || "--"}
                     </td>

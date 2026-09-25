@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Search, Bell, LogOut, Settings } from "lucide-react";
+import { Search, LogOut, Settings } from "lucide-react";
 import { Dropdown } from "@/components/ui/dropdown";
+import { NotificationsPopover } from "@/components/layout/notifications-popover";
 
 const pageTitles: Record<string, string> = {
   "/": "Dashboard",
@@ -126,47 +127,7 @@ export function Header({ onOpenCommandPalette }: HeaderProps) {
 
       {/* Right actions */}
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        {/* Notification bell */}
-        <button
-          aria-label="Notifications"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: 36,
-            height: 36,
-            minHeight: 36,
-            minWidth: 36,
-            borderRadius: "var(--radius-sm)",
-            border: "none",
-            background: "transparent",
-            color: "var(--color-text-secondary)",
-            cursor: "pointer",
-            transition: "background var(--transition-fast)",
-            position: "relative",
-          }}
-          onMouseEnter={(e) =>
-            (e.currentTarget.style.background = "var(--color-accent-light)")
-          }
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.background = "transparent")
-          }
-        >
-          <Bell size={18} />
-          {/* Notification dot */}
-          <span
-            style={{
-              position: "absolute",
-              top: 8,
-              right: 8,
-              width: 7,
-              height: 7,
-              borderRadius: "50%",
-              background: "var(--color-accent)",
-              border: "2px solid var(--color-surface)",
-            }}
-          />
-        </button>
+        <NotificationsPopover />
 
         {/* User avatar + menu */}
         <Dropdown

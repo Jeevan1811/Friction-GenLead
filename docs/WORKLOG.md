@@ -1,5 +1,16 @@
 # Friction GenLead Worklog
 
+## 2026-09-26 — Locations interaction and dashboard QA (release in progress)
+
+- Truth: **IMPLEMENTED AND LOCALLY VERIFIED; DEPLOYMENT AND LIVE BROWSER QA PENDING**.
+- Scoped repo/worktree: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-search-guide`; branch `codex/genlead-locations-qa`; starting base `8c06fba`.
+- Production read-only repro: type/status filters and map filtering worked. `Verified` had no saved matches; `Unverified` did. Grid/list toggle worked. Location grid cards and table rows had no interaction. The map empty state claimed no saved locations had coordinates even when the active filter—not the dataset—was empty. The bell had no click handler and a permanent decorative dot.
+- Implemented linked keyboard-accessible company navigation from location cards/table rows; visible match/mapped counts, Clear filters, deferred search, unchanged-refresh data identity preservation, Canvas map paths and contextual empty states. Replaced the inert bell with a lazy-loaded seven-day due/overdue follow-up reminder panel (company and Follow-ups links; no push/email claims). Added bell/Sheet shortcut and all core routes to the replayable Settings tour; starts on real `/search` to avoid the `/` redirect flicker loop. Assistant help now explains the features.
+- Verification: `node --test tests/*.test.mjs` — **17 passed**; `npm run typecheck --workspace=apps/web` — passed; `python -m pytest -q` under `services/research` — **158 passed**; `npm run build --workspace=apps/web` — passed; `git diff --check` — no whitespace errors (line-ending notices only).
+- No Sheet or production data writes, prospect search, SMTP/auth/secret edits, or other VPS app changes. Do not claim deployed until only the GenLead web process is updated and live browser interactions are verified. The authenticated user browser is on production Locations.
+- Review limitation: guarded Claude release review could not run because org policy disables subscription access; no bypass or Gemini lane was used.
+- Next: review final diff; release via scoped branch/PR and approved GenLead web-only deployment; verify live card→company, filters/map including zero matches and Clear filters, bell, complete tour/no flicker, and zero new browser console errors; update this ledger with deployed commit and exact evidence.
+
 ## 2026-09-24 — SSRF redirect and streamed chat fixes (deployed)
 
 - Truth labels: **Verified**, **DEPLOYED**.

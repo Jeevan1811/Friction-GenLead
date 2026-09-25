@@ -308,6 +308,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             href={googleSheetUrl}
             target="_blank"
             rel="noopener noreferrer"
+            data-tour="google-sheet-link"
             aria-label="Open the live Google Sheet"
             title={collapsed ? "Open Google Sheet" : undefined}
             style={{

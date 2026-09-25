@@ -24,7 +24,14 @@ export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
     path: "/search",
     target: '[data-tour="search-overview"]',
     title: "Find prospects",
-    description: "Enter a place and sector. Review candidates before contacting them.",
+    description: "Search a place and sector. Results are public-source candidates; check each one before contacting it.",
+    side: "bottom",
+  },
+  {
+    path: "/search",
+    target: '[data-tour="notifications-button"]',
+    title: "Follow-up reminders",
+    description: "The bell lists follow-ups due or overdue in the next 7 days. It does not send push or email alerts.",
     side: "bottom",
   },
   {
@@ -39,16 +46,14 @@ export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
     path: "/locations",
     target: '[data-tour="locations-overview"]',
     title: "Check business sites",
-    description:
-      "Locations are the company’s sites—such as an office, depot, mine or plant. The map uses exact saved coordinates when available; legacy Australian postcode-only records are shown at an approximate postcode centre.",
+    description: "Filter the site list and map together. Open a site to see its company; mapped points use saved coordinates or a labelled approximate postcode centre.",
     side: "bottom",
   },
   {
     path: "/contacts",
     target: '[data-tour="contacts-overview"]',
     title: "Find the right person",
-    description:
-      "Contacts from the workbook remain available. If a company has a website URL, public pages can be checked for explicitly named people and roles; every match stays unverified until reviewed.",
+    description: "Review people, roles and contact details here. Website research can find explicitly published people; matches remain unverified until reviewed.",
     side: "bottom",
   },
   {
@@ -74,6 +79,13 @@ export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
     description:
       "Click a company count to open that run’s saved results. Older runs may keep summary counts only.",
     side: "bottom",
+  },
+  {
+    path: "/search",
+    target: 'a[data-tour="google-sheet-link"]',
+    title: "Open the live Google Sheet",
+    description: "Use this shortcut for direct Sheet access. Dashboard pages refresh after Sheet edits, usually within 30 seconds or when you return.",
+    side: "right",
   },
   {
     path: "/rejected",

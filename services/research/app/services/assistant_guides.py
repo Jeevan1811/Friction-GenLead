@@ -42,6 +42,7 @@ Company -> Location -> Contact: a company can have several locations (plant, \
 mine, office, depot, project), and each location can have contacts.
 
 Pages (left sidebar): Search, Companies, Locations, Contacts, Original data, Follow-ups, Searches and Rejected. Open Settings from the profile menu at top right.
+The bell opens follow-up reminders due or overdue in the next 7 days; it does not send push or email alerts. The Google Sheet shortcut stays at the bottom of the sidebar.
 Human approval is always required: nothing is approved or rejected \
 automatically -- a person clicks Approve or Reject.
 """
@@ -76,6 +77,7 @@ GUIDES: tuple[Guide, ...] = (
         steps=(
             "Use the left sidebar to move between Search, Companies, Locations, Contacts, Searches and Rejected.",
             "Open Companies to browse everyone in the database; click a company to see its sites and contacts.",
+            "Open a location card or row to jump to its company details. The same type and status filters apply to the map and list.",
             "Review records and click Approve or Reject -- your decision is saved to the Google Sheet.",
             "Changes you make directly in the Google Sheet appear automatically in an open dashboard page within about 30 seconds, or when you return to the page.",
         ),
@@ -96,6 +98,19 @@ GUIDES: tuple[Guide, ...] = (
         ),
         notes=("The guide only highlights screens. It does not submit forms or change company, location or contact data.",),
         open=("/settings", "Open Settings"),
+    ),
+    Guide(
+        id="notifications",
+        title="What the bell means",
+        keywords=("notification", "notifications", "bell", "reminder", "alert", "due follow-up", "overdue follow-up"),
+        summary="The bell is a shortcut to call follow-up reminders, not a push-notification feed.",
+        steps=(
+            "Open the bell in the top bar to see saved follow-ups that are due or overdue within the next 7 days.",
+            "Choose a company to open its details, or choose View all follow-ups to review the full list.",
+            "Add a follow-up date when recording a call note on a company. The reminder is stored with that activity in the Google Sheet.",
+        ),
+        notes=("The bell does not send email, browser or mobile push alerts.",),
+        open=("/follow-ups", "Open Follow-ups"),
     ),
     Guide(
         id="find-company",
@@ -153,15 +168,16 @@ GUIDES: tuple[Guide, ...] = (
         id="locations",
         title="Browse locations (sites)",
         keywords=("location", "locations", "site", "sites", "address", "mine", "plant", "depot", "office",
-                  "map", "grid", "postcode", "suburb", "where"),
-        summary="The Locations page lists every site, as cards or a table, with search and filters.",
+                  "map", "grid", "postcode", "suburb", "where", "filter map", "open location", "location card"),
+        summary="The Locations page shows saved sites as cards or a table, alongside a map of matching coordinates.",
         steps=(
             "Open Locations from the sidebar.",
-            "Search by site, address, suburb, state, postcode, country or company; use the Type and Status drop-downs to filter.",
+            "Search by site, address, suburb, state, postcode, country or company; Type and Status filters update both the list and map.",
             "Switch between card view and table view with the two icons on the right of the toolbar.",
+            "Click a location card or row to open its company details. The map summary explains if no filtered sites match or have coordinates.",
             "Use Next / Previous under the list (50 sites per page).",
         ),
-        notes=("Saved exact coordinates appear as location pins. Imported Australian postcode-only locations use an approximate postcode centre and are labelled as approximate.",),
+        notes=("Postcode-centre points are approximate, not exact site addresses. A filter with no matches has no map pins; clear the filters to see all sites again.",),
         open=("/locations", "Open Locations"),
         shots=("locations",),
     ),

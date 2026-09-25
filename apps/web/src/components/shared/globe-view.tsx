@@ -78,6 +78,7 @@ export function GlobeView({ locations }: GlobeViewProps) {
           minZoom: 2,
           worldCopyJump: true,
           scrollWheelZoom: true,
+          preferCanvas: true,
         });
         leaflet.tileLayer(
           process.env.NEXT_PUBLIC_MAP_TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -137,7 +138,7 @@ export function GlobeView({ locations }: GlobeViewProps) {
         fillOpacity: 0.95,
       });
       marker.bindPopup(PopupContent({ rows }));
-      if (rows.length > 1) marker.bindTooltip(String(rows.length), { permanent: true, direction: "center", className: "genlead-map-count" });
+      if (rows.length > 1) marker.bindTooltip(`${rows.length} locations`, { direction: "center", className: "genlead-map-count" });
       marker.addTo(layer);
     }
 
@@ -166,9 +167,13 @@ export function GlobeView({ locations }: GlobeViewProps) {
             <span>Map could not load. Check your connection and reload the page.</span>
           </div>
         )}
-        {status === "ready" && mappableLocations.length === 0 && (
-          <div className="genlead-map-empty" role="status">
-            No saved locations have coordinates yet. New mapped prospects appear here; Australian postcode-only records use approximate postcode centres.
+        {status === "ready" && (
+          <div className={mappableLocations.length ? "genlead-map-summary" : "genlead-map-empty"} role="status" aria-live="polite">
+            {locations.length === 0
+              ? "No locations match these filters. Change or clear a filter below."
+              : mappableLocations.length === 0
+                ? `${locations.length.toLocaleString()} matching locations have no coordinates. They remain available in the list below.`
+                : `${mappableLocations.length.toLocaleString()} of ${locations.length.toLocaleString()} matching locations mapped${locations.length > mappableLocations.length ? ` · ${ (locations.length - mappableLocations.length).toLocaleString()} without coordinates` : ""}.`}
           </div>
         )}
       </div>

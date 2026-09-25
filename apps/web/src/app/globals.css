@@ -107,6 +107,44 @@
   justify-content: flex-start;
 }
 
+.genlead-map-summary {
+  position: absolute;
+  z-index: 500;
+  top: 12px;
+  left: 12px;
+  max-width: min(360px, calc(100% - 24px));
+  padding: 8px 11px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 94%);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-sm);
+  font-size: 12px;
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.location-card-button {
+  color: inherit;
+  font: inherit;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.location-card-button:not(:disabled) {
+  cursor: pointer;
+}
+
+.location-card-button:not(:disabled):hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-md);
+}
+
+.location-card-button:focus-visible,
+.genlead-location-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
 .genlead-map-popup-item + .genlead-map-popup-item {
   margin-top: 8px;
   padding-top: 8px;

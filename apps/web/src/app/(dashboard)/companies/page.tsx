@@ -211,12 +211,15 @@ export default function CompaniesPage() {
   ];
 
   const tabDef = tabs.find((t) => t.key === activeTab)!;
+  const runScopedCompanies = useMemo(
+    () => researchRunCompanyIds === null
+      ? companies
+      : filterCompaniesToResearchRun(companies, researchRunCompanyIds),
+    [companies, researchRunCompanyIds]
+  );
 
   const filtered = useMemo(() => {
-    let result = companies.filter(tabDef.filter);
-    if (researchRunCompanyIds !== null) {
-      result = filterCompaniesToResearchRun(result, researchRunCompanyIds);
-    }
+    let result = runScopedCompanies.filter(tabDef.filter);
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
@@ -243,7 +246,7 @@ export default function CompaniesPage() {
       return sortAsc ? cmp : -cmp;
     });
     return result;
-  }, [activeTab, searchQuery, sortKey, sortAsc, tabDef, companies, locationByCompany, contactsByCompany, researchRunCompanyIds]);
+  }, [activeTab, searchQuery, sortKey, sortAsc, tabDef, runScopedCompanies, locationByCompany, contactsByCompany]);
 
   const [page, setPage] = useState(0);
   useEffect(() => {
@@ -377,7 +380,7 @@ export default function CompaniesPage() {
         }}
       >
         {tabs.map((tab) => {
-          const count = companies.filter(tab.filter).length;
+          const count = runScopedCompanies.filter(tab.filter).length;
           const isActive = activeTab === tab.key;
           return (
             <button

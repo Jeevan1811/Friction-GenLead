@@ -5,10 +5,10 @@ Last updated: 2026-09-26 (Asia/Singapore)
 ## Repository and release state
 
 - Repository: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-shipfix`
-- Working branch: `codex/genlead-dashboard-polish`, based on `origin/main` at `e32cf17`.
-- Production: `31.97.70.50`, app user `frictiongenlead`; dashboard release `b401670` is live and the prior search-to-Sheets run remains synced.
-- Current task: the live Search History “30 companies” count was clicked in the authenticated browser and did not navigate. A focused UI fix is implemented locally to open run-scoped company results and company details, remove duplicate sidebar Settings, align the avatar trigger, and reduce repeated copy.
-- Current polish verification: research-run helper tests, trusted-device tests, web typecheck, and Next production build pass. Current UI polish changes have not yet been deployed; see the latest worklog entry for release status.
+- Working branch: `codex/genlead-run-scoped-counts`, based on `origin/main` at `072c074`.
+- Production: `31.97.70.50`, app user `frictiongenlead`; dashboard release `072c074` is live, only `frictiongenlead-web` was restarted, and API health remains OK.
+- Current task: PR #9 deployed and the saved-run link now opens the exact 30 company rows; selecting a company opens its detail drawer. Browser QA found that the status-tab badges still showed global totals while the list was run-scoped. A follow-up correction is implemented locally so badges use the selected run's rows.
+- Current follow-up verification: eight Node tests, web typecheck, and Next production build pass. The run-scoped badge correction is not yet deployed; see the latest worklog entry for release status.
 - Existing uncommitted auth/device-lock changes in this worktree belong to Jeevan and are excluded from the dashboard-polish change. Do not inspect or modify `.env`, credentials, or other VPS applications.
 
 ## Verified findings and changes in progress

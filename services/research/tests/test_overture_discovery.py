@@ -43,8 +43,7 @@ def test_search_maps_latest_global_place_records_with_source_provenance():
                 "locality": "Gladstone",
                 "region": "Queensland",
                 "postcode": "4680",
-                "country": "Australia",
-                "country_code": "au",
+                "country": "AU",
             }],
             "websites": ["https://example.invalid/"],
             "phones": ["+61 7 5555 0101"],
@@ -73,6 +72,8 @@ def test_search_maps_latest_global_place_records_with_source_provenance():
     assert row["website"] == "https://example.invalid/"
     assert row["phone"] == "+61 7 5555 0101"
     assert row["email"] == "info@example.invalid"
+    assert row["country"] == "Australia"
+    assert row["country_code"] == "au"
     assert row["source"] == "OVERTURE_MAPS"
     assert row["source_provenance"]["release"] == "2026-09-23.0"
     assert row["source_provenance"]["sources"][0]["license"] == "CDLA-Permissive-2.0"
@@ -188,3 +189,5 @@ def test_duckdb_connection_uses_supported_resource_options(monkeypatch):
     query = next(query for query in executed_queries if "FROM read_parquet" in query)
     assert "basic_category AS category_basic" in query
     assert "taxonomy.basic_category" not in query
+    assert "addresses[1].country AS country" in query
+    assert "addresses[1].country_code" not in query

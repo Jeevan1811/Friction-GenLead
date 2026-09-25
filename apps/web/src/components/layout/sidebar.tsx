@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
@@ -11,12 +11,16 @@ import {
   Users,
   History,
   XCircle,
+  Settings,
+  CalendarClock,
+  FileSearch,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
 import { SyncIndicator } from "@/components/shared/sync-indicator";
 import { getJobs, getSyncStatus } from "@/lib/api";
 import type { SyncStatus } from "@/lib/types";
+import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -37,21 +41,18 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const [rejectedCount, setRejectedCount] = useState<number | null>(null);
   const [sync, setSync] = useState<SyncStatus | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    getJobs()
+  const refresh = useCallback(async () => {
+    const jobsRefresh = getJobs()
       .then((data) => {
-        if (!cancelled) setSearchesCount(data.length);
+        setSearchesCount(data.length);
       })
       .catch(() => {});
 
     // Badge counts come from the sync-status summary rather than
     // downloading every full list just to call .length -- with thousands
     // of rows per tab that was megabytes per page view.
-    getSyncStatus()
+    const syncRefresh = getSyncStatus()
       .then((data) => {
-        if (cancelled) return;
         setSync(data);
         setCompaniesCount(data.companiesCount);
         setLocationsCount(data.locationsCount);
@@ -59,26 +60,24 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         setRejectedCount(data.rejectionsCount);
       })
       .catch(() => {
-        if (!cancelled) {
-          setSync({
-            connected: false,
-            mode: "mock",
-            spreadsheetId: null,
-            companiesCount: 0,
-            locationsCount: 0,
-            contactsCount: 0,
-            rejectionsCount: 0,
-            syncLogEntries: 0,
-            lastSync: null,
-            state: "ERROR",
-          });
-        }
+        setSync({
+          connected: false,
+          mode: "mock",
+          spreadsheetId: null,
+          companiesCount: 0,
+          locationsCount: 0,
+          contactsCount: 0,
+          rejectionsCount: 0,
+          syncLogEntries: 0,
+          lastSync: null,
+          state: "ERROR",
+        });
       });
-
-    return () => {
-      cancelled = true;
-    };
+    await Promise.all([jobsRefresh, syncRefresh]);
   }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+  useSheetAutoRefresh(refresh);
 
   const navItems = [
     {
@@ -106,6 +105,12 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       count: contactsCount,
     },
     {
+      href: "/source-data",
+      label: "Original data",
+      icon: FileSearch,
+      count: null as number | null,
+    },
+    {
       href: "/searches",
       label: "Searches",
       icon: History,
@@ -116,6 +121,18 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       label: "Rejected",
       icon: XCircle,
       count: rejectedCount,
+    },
+    {
+      href: "/follow-ups",
+      label: "Follow-ups",
+      icon: CalendarClock,
+      count: null as number | null,
+    },
+    {
+      href: "/settings",
+      label: "Settings",
+      icon: Settings,
+      count: null,
     },
   ];
 

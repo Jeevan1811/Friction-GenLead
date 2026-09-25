@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Search, Building2, Users, History, MoreHorizontal } from "lucide-react";
+import { Search, Building2, Users, History, MoreHorizontal, FileSearch } from "lucide-react";
 
 const mobileNavItems = [
   { href: "/search", label: "Search", icon: Search },
   { href: "/companies", label: "Companies", icon: Building2 },
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/searches", label: "Searches", icon: History },
+  { href: "/source-data", label: "Source", icon: FileSearch },
   { href: "/rejected", label: "More", icon: MoreHorizontal },
 ];
 
@@ -49,8 +50,9 @@ export function MobileNav() {
               flexDirection: "column",
               alignItems: "center",
               gap: "4px",
-              padding: "6px 12px",
-              minWidth: "56px",
+              flex: "1 1 0",
+              minWidth: 0,
+              padding: "6px 3px",
               minHeight: "44px",
               justifyContent: "center",
               textDecoration: "none",
@@ -63,7 +65,7 @@ export function MobileNav() {
             <Icon size={20} strokeWidth={isActive ? 2.2 : 1.8} />
             <span
               style={{
-                fontSize: "10px",
+                fontSize: "9px",
                 fontWeight: isActive ? 600 : 400,
                 lineHeight: 1,
               }}

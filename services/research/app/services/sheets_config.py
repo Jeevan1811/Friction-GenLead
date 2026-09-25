@@ -5,8 +5,9 @@ the persistent store.  Every tab, its display name, and the ordered list
 of column headers are declared here so that the adapter, import pipeline,
 and any future migration scripts share a single source of truth.
 
-Column order matters -- the adapter reads/writes by positional index
-within each tab.
+Headers identify fields; the adapter reads and writes by normalized header
+name so harmless column reordering is safe. Schema upgrades append missing
+headers and never replace existing columns.
 """
 
 from __future__ import annotations
@@ -40,6 +41,11 @@ SPREADSHEET_TABS: dict[str, TabConfig] = {
             "last_verified",
             "last_modified",
             "notes",
+            "source_verification",
+            "business_landlines",
+            "legacy_source_text",
+            "source_provenance",
+            "source_quality_flags",
         ],
     },
     "locations": {
@@ -58,6 +64,9 @@ SPREADSHEET_TABS: dict[str, TabConfig] = {
             "verification_status",
             "last_verified",
             "last_modified",
+            "raw_postcode",
+            "source_provenance",
+            "source_quality_flags",
         ],
     },
     "contacts": {
@@ -77,6 +86,9 @@ SPREADSHEET_TABS: dict[str, TabConfig] = {
             "contact_status",
             "last_verified",
             "last_modified",
+            "professional_url_raw",
+            "source_provenance",
+            "source_quality_flags",
         ],
     },
     "rejected": {
@@ -101,6 +113,57 @@ SPREADSHEET_TABS: dict[str, TabConfig] = {
             "changed_fields",
             "old_values",
             "new_values",
+        ],
+    },
+    "activities": {
+        "name": "Activities",
+        "columns": [
+            "activity_id",
+            "company_id",
+            "contact_id",
+            "activity_type",
+            "outcome",
+            "notes",
+            "happened_at",
+            "follow_up_at",
+            "follow_up_status",
+            "follow_up_completed_at",
+            "created_at",
+        ],
+    },
+    "search_runs": {
+        "name": "SearchRuns",
+        "columns": [
+            "job_id",
+            "postcode",
+            "industry",
+            "roles",
+            "status",
+            "companies_found",
+            "contacts_found",
+            "created_at",
+            "updated_at",
+            "error_summary",
+        ],
+    },
+    "source_records": {
+        "name": "SourceRecords",
+        "columns": [
+            "source_record_id",
+            "record_type",
+            "company_id",
+            "company_name",
+            "source_workbook",
+            "source_sheet",
+            "source_row",
+            "source_field",
+            "postcode_raw",
+            "contact_name",
+            "landline_raw",
+            "verification_source_raw",
+            "legacy_source_text",
+            "raw_data_json",
+            "source_sha256",
         ],
     },
 }

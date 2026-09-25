@@ -106,7 +106,26 @@ class SyncLogEntry:
 BATCH_CHUNK_SIZE = 50
 MAX_RETRIES = 3
 BACKOFF_BASE_SECONDS = 2.0
-TAB_CACHE_TTL_SECONDS = 15.0
+TAB_CACHE_TTL_SECONDS = 5.0
+
+
+def _normalize_header(value: Any) -> str:
+    """Normalize a Sheet header so labels and snake_case resolve identically."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    words = text.replace("-", " ").replace("_", " ").split()
+    return "_".join(word.lower() for word in words)
+
+
+def _column_letter(index: int) -> str:
+    """Convert a zero-based column index to its A1 column label."""
+    number = index + 1
+    letters = ""
+    while number:
+        number, remainder = divmod(number - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +160,9 @@ class GoogleSheetsAdapter:
     _locations: dict[str, dict[str, Any]] = field(default_factory=dict)
     _contacts: dict[str, dict[str, Any]] = field(default_factory=dict)
     _rejections: list[dict[str, Any]] = field(default_factory=list)
+    _activities: dict[str, dict[str, Any]] = field(default_factory=dict)
+    _search_runs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    _source_records: dict[str, dict[str, Any]] = field(default_factory=dict)
     _sync_log: list[SyncLogEntry] = field(default_factory=list)
     # tab_key -> (monotonic timestamp, rows); see _read_tab.
     _tab_cache: dict[str, tuple[float, list[dict[str, Any]]]] = field(default_factory=dict)
@@ -341,11 +363,11 @@ class GoogleSheetsAdapter:
             )
 
     async def _ensure_tabs_exist(self) -> None:
-        """Create any missing tabs with correct headers.
+        """Create missing tabs and append newly required headers safely.
 
-        In mock mode this is a no-op.  In real mode it checks for each
-        tab defined in ``SPREADSHEET_TABS`` and creates it with the
-        header row if missing.
+        Existing header order and unknown columns are preserved. New app
+        columns are added at the end so a schema upgrade cannot shift or
+        replace user-maintained data.
         """
         if self._mock_mode or not self._service:
             return
@@ -378,17 +400,40 @@ class GoogleSheetsAdapter:
                     body={"requests": requests},
                 ).execute()
 
-                # Write headers for newly created tabs.
-                for tab_key, tab_config in SPREADSHEET_TABS.items():
-                    tab_name = tab_config["name"]
-                    if tab_name not in existing_titles:
-                        header_range = f"{tab_name}!A1"
-                        self._service.spreadsheets().values().update(
-                            spreadsheetId=self.spreadsheet_id,
-                            range=header_range,
-                            valueInputOption="RAW",
-                            body={"values": [tab_config["columns"]]},
-                        ).execute()
+            # Append missing headers without replacing existing labels/order.
+            for tab_key, tab_config in SPREADSHEET_TABS.items():
+                tab_name = tab_config["name"]
+                result = self._service.spreadsheets().values().get(
+                    spreadsheetId=self.spreadsheet_id,
+                    range=f"{tab_name}!A1:ZZ1",
+                ).execute()
+                values = result.get("values", [])
+                headers = [str(value).strip() for value in values[0]] if values else []
+                if not headers:
+                    self._service.spreadsheets().values().update(
+                        spreadsheetId=self.spreadsheet_id,
+                        range=f"{tab_name}!A1",
+                        valueInputOption="RAW",
+                        body={"values": [tab_config["columns"]]},
+                    ).execute()
+                    continue
+
+                existing = {_normalize_header(header) for header in headers}
+                missing = [
+                    column for column in tab_config["columns"]
+                    if _normalize_header(column) not in existing
+                ]
+                if missing:
+                    start = _column_letter(len(headers))
+                    self._service.spreadsheets().values().update(
+                        spreadsheetId=self.spreadsheet_id,
+                        range=f"{tab_name}!{start}1",
+                        valueInputOption="RAW",
+                        body={"values": [missing]},
+                    ).execute()
+                    logger.info("Appended %d schema columns to %s", len(missing), tab_name)
+
+            self._invalidate_tab_cache()
 
         except Exception:
             logger.exception("Failed to ensure tabs exist. Continuing anyway.")
@@ -457,12 +502,183 @@ class GoogleSheetsAdapter:
 
         return await self._read_tab("rejected")
 
+    async def read_activities(self, company_id: str | None = None) -> list[dict[str, Any]]:
+        """Read append-only customer activity, optionally for one company."""
+        self._ensure_connected()
+        rows = (
+            list(self._activities.values())
+            if self._mock_mode
+            else await self._read_tab("activities")
+        )
+        if company_id:
+            rows = [row for row in rows if row.get("company_id") == company_id]
+        return rows
+
+    async def append_activity(self, activity: dict[str, Any]) -> SyncState:
+        """Append an activity idempotently using its caller-supplied UUID."""
+        self._ensure_connected()
+        activity_id = str(activity.get("activity_id", ""))
+        if not activity_id:
+            return SyncState.PENDING
+        try:
+            if self._mock_mode:
+                self._activities.setdefault(activity_id, dict(activity))
+                return SyncState.SYNCED
+            return await self._write_row_with_retry(
+                "activities", activity_id, activity, "activity_id"
+            )
+        except Exception:
+            logger.exception("Failed to append activity %s", activity_id)
+            return SyncState.PENDING
+
+    async def complete_follow_up(self, activity_id: str, completed: bool = True) -> SyncState:
+        """Update only follow-up state; the original activity note stays intact."""
+        self._ensure_connected()
+        try:
+            rows = await self.read_activities()
+            existing = next((row for row in rows if str(row.get("activity_id")) == activity_id), None)
+            if not existing or not str(existing.get("follow_up_at", "")).strip():
+                return SyncState.ERROR
+            if self._mock_mode:
+                row = self._activities[activity_id]
+                row["follow_up_status"] = "COMPLETED" if completed else "OPEN"
+                row["follow_up_completed_at"] = datetime.now(timezone.utc).isoformat() if completed else ""
+                return SyncState.SYNCED
+            return await self._write_row_with_retry(
+                "activities",
+                activity_id,
+                {
+                    "activity_id": activity_id,
+                    "follow_up_status": "COMPLETED" if completed else "OPEN",
+                    "follow_up_completed_at": datetime.now(timezone.utc).isoformat() if completed else "",
+                },
+                "activity_id",
+            )
+        except Exception:
+            logger.exception("Failed to update follow-up %s", activity_id)
+            return SyncState.PENDING
+
+    async def read_search_runs(self) -> list[dict[str, Any]]:
+        """Read persistent summary rows for prospect research runs."""
+        self._ensure_connected()
+        if self._mock_mode:
+            return list(self._search_runs.values())
+        return await self._read_tab("search_runs")
+
+    async def read_source_records(self) -> list[dict[str, Any]]:
+        """Read imported workbook rows, including source-only/unmatched rows."""
+        self._ensure_connected()
+        if self._mock_mode:
+            return list(self._source_records.values())
+        return await self._read_tab("source_records")
+
+    async def append_source_records(
+        self, records: list[dict[str, Any]], *, chunk_size: int = 250
+    ) -> tuple[int, int]:
+        """Append source rows idempotently without ever overwriting them.
+
+        Existing IDs with the same content hash are skipped. An ID collision
+        with different content aborts before writing any new records.
+        Returns (added, already_present).
+        """
+        self._ensure_connected()
+        by_id: dict[str, dict[str, Any]] = {}
+        for record in records:
+            record_id = str(record.get("source_record_id", "")).strip()
+            if not record_id:
+                raise ValueError("Every source record must have a source_record_id")
+            if record_id in by_id:
+                if by_id[record_id].get("source_sha256") != record.get("source_sha256"):
+                    raise ValueError(f"Duplicate source ID has conflicting content: {record_id}")
+                continue
+            by_id[record_id] = record
+
+        existing_rows = await self.read_source_records()
+        existing = {
+            str(row.get("source_record_id", "")): str(row.get("source_sha256", ""))
+            for row in existing_rows
+            if row.get("source_record_id")
+        }
+        conflicts = [
+            record_id for record_id, record in by_id.items()
+            if record_id in existing
+            and existing[record_id] != str(record.get("source_sha256", ""))
+        ]
+        if conflicts:
+            raise ValueError(
+                "Existing source rows differ from this import; refusing to overwrite: "
+                + ", ".join(conflicts[:5])
+            )
+
+        pending = [record for record_id, record in by_id.items() if record_id not in existing]
+        if self._mock_mode:
+            for record in pending:
+                self._source_records[str(record["source_record_id"])] = dict(record)
+            return len(pending), len(by_id) - len(pending)
+
+        if not pending:
+            return 0, len(by_id)
+
+        tab_name = SPREADSHEET_TABS["source_records"]["name"]
+        live_headers = await self._read_tab_headers("source_records")
+        normalized_headers = [_normalize_header(value) for value in live_headers]
+        if not normalized_headers or "source_record_id" not in normalized_headers:
+            raise RuntimeError("SourceRecords is missing its source_record_id header")
+
+        for start in range(0, len(pending), chunk_size):
+            chunk = pending[start : start + chunk_size]
+            rows = []
+            for record in chunk:
+                normalized = {_normalize_header(k): v for k, v in record.items()}
+                row = []
+                for header in normalized_headers:
+                    value = normalized.get(header, "")
+                    if isinstance(value, (dict, list)):
+                        value = json.dumps(value, default=str, ensure_ascii=False)
+                    row.append("" if value is None else str(value))
+                rows.append(row)
+            self._service.spreadsheets().values().append(
+                spreadsheetId=self.spreadsheet_id,
+                range=f"{tab_name}!A:A",
+                valueInputOption="RAW",
+                insertDataOption="INSERT_ROWS",
+                body={"values": rows},
+            ).execute()
+        self._invalidate_tab_cache("source_records")
+        return len(pending), len(by_id) - len(pending)
+
+    async def upsert_search_run(self, run: dict[str, Any]) -> SyncState:
+        """Persist the current summary for one research run."""
+        self._ensure_connected()
+        run_id = str(run.get("job_id", ""))
+        if not run_id:
+            return SyncState.PENDING
+        try:
+            if self._mock_mode:
+                self._search_runs[run_id] = dict(run)
+                return SyncState.SYNCED
+            return await self._write_row_with_retry(
+                "search_runs", run_id, run, "job_id"
+            )
+        except Exception:
+            logger.exception("Failed to persist search run %s", run_id)
+            return SyncState.PENDING
+
     def _invalidate_tab_cache(self, tab_key: str | None = None) -> None:
         """Drop cached reads after a write so the next read sees it."""
         if tab_key is None:
             self._tab_cache.clear()
         else:
             self._tab_cache.pop(tab_key, None)
+
+    async def _read_tab_headers(self, tab_key: str) -> list[str]:
+        tab_name = SPREADSHEET_TABS[tab_key]["name"]
+        result = self._service.spreadsheets().values().get(
+            spreadsheetId=self.spreadsheet_id,
+            range=f"{tab_name}!A1:ZZ1",
+        ).execute()
+        values = result.get("values", [])
+        return [str(value).strip() for value in values[0]] if values else []
 
     async def _read_tab(self, tab_key: str) -> list[dict[str, Any]]:
         """Read all rows from a tab and return as list of dicts.
@@ -480,7 +696,6 @@ class GoogleSheetsAdapter:
 
         tab_config = SPREADSHEET_TABS[tab_key]
         tab_name = tab_config["name"]
-        columns = tab_config["columns"]
 
         try:
             result = (
@@ -488,7 +703,7 @@ class GoogleSheetsAdapter:
                 .values()
                 .get(
                     spreadsheetId=self.spreadsheet_id,
-                    range=f"{tab_name}!A:Z",
+                    range=f"{tab_name}!A:ZZ",
                 )
                 .execute()
             )
@@ -497,12 +712,16 @@ class GoogleSheetsAdapter:
                 self._tab_cache[tab_key] = (time.monotonic(), [])
                 return []  # Only header row or empty.
 
-            # Skip header row, map to dicts.
+            # Read by the live header row rather than code-defined position.
+            # This preserves user-added columns and tolerates safe column
+            # reordering in the Sheet.
+            headers = [_normalize_header(value) for value in rows[0]]
             records: list[dict[str, Any]] = []
             for row in rows[1:]:
                 record: dict[str, Any] = {}
-                for i, col in enumerate(columns):
-                    record[col] = row[i] if i < len(row) else None
+                for i, col in enumerate(headers):
+                    if col:
+                        record[col] = row[i] if i < len(row) else None
                 records.append(record)
             self._tab_cache[tab_key] = (time.monotonic(), records)
             return records
@@ -837,13 +1056,19 @@ class GoogleSheetsAdapter:
                 "locations_count": len(self._locations),
                 "contacts_count": len(self._contacts),
                 "rejections_count": len(self._rejections),
+                "activities_count": len(self._activities),
+                "search_runs_count": len(self._search_runs),
+                "source_records_count": len(self._source_records),
                 "sync_log_entries": len(self._sync_log),
                 "last_sync": last_sync,
             }
 
         # Real mode: read counts from each tab.
         counts: dict[str, int] = {}
-        for tab_key in ("companies", "locations", "contacts", "rejected"):
+        for tab_key in (
+            "companies", "locations", "contacts", "rejected",
+            "activities", "search_runs", "source_records",
+        ):
             try:
                 rows = await self._read_tab(tab_key)
                 counts[tab_key] = len(rows)
@@ -858,6 +1083,9 @@ class GoogleSheetsAdapter:
             "locations_count": counts.get("locations", 0),
             "contacts_count": counts.get("contacts", 0),
             "rejections_count": counts.get("rejected", 0),
+            "activities_count": counts.get("activities", 0),
+            "search_runs_count": counts.get("search_runs", 0),
+            "source_records_count": counts.get("source_records", 0),
             "sync_log_entries": len(self._sync_log),
             "last_sync": last_sync,
         }
@@ -896,20 +1124,17 @@ class GoogleSheetsAdapter:
         """
         tab_config = SPREADSHEET_TABS[tab_key]
         tab_name = tab_config["name"]
-        columns = tab_config["columns"]
 
         for attempt in range(1, MAX_RETRIES + 1):
             try:
+                columns = await self._read_tab_headers(tab_key)
+                normalized_columns = [_normalize_header(column) for column in columns]
+                if _normalize_header(id_column) not in normalized_columns:
+                    raise RuntimeError(
+                        f"{tab_name} is missing its required ID column {id_column!r}"
+                    )
                 # Check for existing row.
                 existing_row_num = await self._find_row(tab_name, id_column, row_id, columns)
-
-                # Build the row values in column order.
-                row_values = []
-                for col in columns:
-                    val = row_data.get(col, "")
-                    if isinstance(val, (dict, list)):
-                        val = json.dumps(val, default=str)
-                    row_values.append(str(val) if val is not None else "")
 
                 if existing_row_num:
                     # Merge into the existing row instead of replacing it:
@@ -920,24 +1145,55 @@ class GoogleSheetsAdapter:
                     # changes when the caller actually supplies a value for
                     # it; user-owned fields always keep their existing value.
                     existing_data = await self._read_row(tab_name, existing_row_num, columns)
-                    for col_idx, col in enumerate(columns):
-                        existing_val = existing_data.get(col)
-                        if not existing_val:
-                            continue
-                        supplied = row_data.get(col)
-                        if col in USER_OWNED_FIELDS or supplied is None or supplied == "":
-                            row_values[col_idx] = str(existing_val)
+                    row_values = [
+                        existing_data.get(_normalize_header(col), "")
+                        for col in columns
+                    ]
+                else:
+                    row_values = [""] * len(columns)
 
-                    # Update existing row.
-                    row_range = f"{tab_name}!A{existing_row_num}"
-                    self._service.spreadsheets().values().update(
-                        spreadsheetId=self.spreadsheet_id,
-                        range=row_range,
-                        valueInputOption="RAW",
-                        body={"values": [row_values]},
-                    ).execute()
+                selected: dict[int, str] = {}
+                for key, supplied in row_data.items():
+                    normalized_key = _normalize_header(key)
+                    if normalized_key not in normalized_columns:
+                        continue
+                    column_index = normalized_columns.index(normalized_key)
+                    existing_val = row_values[column_index]
+                    if supplied is None or supplied == "":
+                        continue
+                    if key in USER_OWNED_FIELDS and existing_val:
+                        continue
+                    if isinstance(supplied, (dict, list)):
+                        supplied = json.dumps(supplied, default=str, ensure_ascii=False)
+                    selected[column_index] = str(supplied)
+
+                if existing_row_num:
+                    # Update only supplied cells, grouped into contiguous
+                    # ranges. This leaves formulas and user-added columns
+                    # untouched instead of round-tripping the full row.
+                    ordered = sorted(selected.items())
+                    groups: list[list[tuple[int, str]]] = []
+                    for item in ordered:
+                        if not groups or item[0] != groups[-1][-1][0] + 1:
+                            groups.append([item])
+                        else:
+                            groups[-1].append(item)
+                    for group in groups:
+                        first, last = group[0][0], group[-1][0]
+                        row_range = (
+                            f"{tab_name}!{_column_letter(first)}{existing_row_num}:"
+                            f"{_column_letter(last)}{existing_row_num}"
+                        )
+                        self._service.spreadsheets().values().update(
+                            spreadsheetId=self.spreadsheet_id,
+                            range=row_range,
+                            valueInputOption="RAW",
+                            body={"values": [[value for _, value in group]]},
+                        ).execute()
                     operation = "update"
                 else:
+                    for index, value in selected.items():
+                        row_values[index] = value
                     # Append new row.
                     self._service.spreadsheets().values().append(
                         spreadsheetId=self.spreadsheet_id,
@@ -1001,10 +1257,12 @@ class GoogleSheetsAdapter:
 
         Returns None if the record is not found.
         """
-        if id_column not in columns:
+        normalized_columns = [_normalize_header(column) for column in columns]
+        normalized_id_column = _normalize_header(id_column)
+        if normalized_id_column not in normalized_columns:
             return None
 
-        col_idx = columns.index(id_column)
+        col_idx = normalized_columns.index(normalized_id_column)
 
         try:
             result = (
@@ -1012,7 +1270,7 @@ class GoogleSheetsAdapter:
                 .values()
                 .get(
                     spreadsheetId=self.spreadsheet_id,
-                    range=f"{tab_name}!A:Z",
+                    range=f"{tab_name}!A:ZZ",
                 )
                 .execute()
             )
@@ -1038,7 +1296,7 @@ class GoogleSheetsAdapter:
                 .values()
                 .get(
                     spreadsheetId=self.spreadsheet_id,
-                    range=f"{tab_name}!A{row_num}:Z{row_num}",
+                    range=f"{tab_name}!A{row_num}:ZZ{row_num}",
                 )
                 .execute()
             )
@@ -1046,8 +1304,9 @@ class GoogleSheetsAdapter:
             if rows:
                 row = rows[0]
                 return {
-                    col: row[i] if i < len(row) else None
+                    _normalize_header(col): row[i] if i < len(row) else None
                     for i, col in enumerate(columns)
+                    if _normalize_header(col)
                 }
         except Exception:
             logger.exception("Failed to read row %d from %s", row_num, tab_name)

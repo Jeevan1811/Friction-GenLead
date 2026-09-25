@@ -12,6 +12,7 @@ in-memory fake of the Sheets API.
 from __future__ import annotations
 
 import asyncio
+import builtins
 import re
 
 from app.models.enums import SyncState
@@ -43,14 +44,24 @@ class FakeSheets:
         tab, _, cells = rng.partition("!")
         return tab, cells
 
+    @staticmethod
+    def _column_number(value: str) -> int:
+        result = 0
+        for char in value:
+            result = result * 26 + ord(char) - 64
+        return result - 1
+
     def get(self, spreadsheetId, range):  # noqa: A002
         def run():
             tab, cells = self._tab_and_range(range)
             rows = self.tabs.get(tab, [])
-            m = re.match(r"A(\d+):Z\d+", cells)
+            m = re.match(r"([A-Z]+)(\d+):([A-Z]+)(\d+)", cells)
             if m:
-                n = int(m.group(1))
-                return {"values": [rows[n - 1]]} if n <= len(rows) else {}
+                start_col, start_row = self._column_number(m.group(1)), int(m.group(2))
+                end_col, end_row = self._column_number(m.group(3)), int(m.group(4))
+                if start_row > len(rows):
+                    return {}
+                return {"values": [rows[i - 1][start_col : end_col + 1] for i in builtins.range(start_row, min(end_row, len(rows)) + 1)]}
             return {"values": rows}
 
         return _Req(run)
@@ -58,11 +69,17 @@ class FakeSheets:
     def update(self, spreadsheetId, range, valueInputOption, body):  # noqa: A002
         def run():
             tab, cells = self._tab_and_range(range)
-            n = int(re.match(r"A(\d+)", cells).group(1))
+            match = re.match(r"([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?", cells)
+            start_col, n = self._column_number(match.group(1)), int(match.group(2))
             rows = self.tabs.setdefault(tab, [])
             while len(rows) < n:
                 rows.append([])
-            rows[n - 1] = list(body["values"][0])
+            values = list(body["values"][0])
+            end_col = self._column_number(match.group(3)) if match.group(3) else start_col + len(values) - 1
+            row = rows[n - 1]
+            while len(row) <= end_col:
+                row.append("")
+            row[start_col : end_col + 1] = values
             return {}
 
         return _Req(run)
@@ -70,7 +87,7 @@ class FakeSheets:
     def append(self, spreadsheetId, range, valueInputOption, insertDataOption, body):  # noqa: A002
         def run():
             tab, _ = self._tab_and_range(range)
-            self.tabs.setdefault(tab, []).append(list(body["values"][0]))
+            self.tabs.setdefault(tab, []).extend([list(row) for row in body["values"]])
             return {}
 
         return _Req(run)
@@ -104,7 +121,7 @@ def _seed_company(fake: FakeSheets) -> list[str]:
         "last_modified": "2026-09-01",
         "notes": "Call in March",
     }
-    fake.tabs["Companies"] = [cols, [full[c] for c in cols]]
+    fake.tabs["Companies"] = [cols, [full.get(c, "") for c in cols]]
     return cols
 
 
@@ -155,6 +172,49 @@ def test_user_owned_fields_keep_existing_value():
     assert row["priority"] == "2"
 
 
+def test_partial_update_does_not_round_trip_unowned_columns_or_formulas():
+    fake = FakeSheets()
+    fake.tabs["Companies"] = [
+        ["company_id", "company_name", "status", "notes", "owner_formula"],
+        ["cmp_1", "Acme", "NEW", "Call in March", "=1+1"],
+    ]
+    adapter = _adapter_with(fake)
+
+    assert asyncio.run(adapter.upsert_company({"company_id": "cmp_1", "status": "APPROVED"})) == SyncState.SYNCED
+    assert fake.tabs["Companies"][1] == ["cmp_1", "Acme", "APPROVED", "Call in March", "=1+1"]
+
+
+def test_source_record_append_is_idempotent_and_refuses_hash_conflicts():
+    fake = FakeSheets()
+    columns = SPREADSHEET_TABS["source_records"]["columns"]
+    fake.tabs["SourceRecords"] = [columns]
+    adapter = _adapter_with(fake)
+    records = [
+        {
+            "source_record_id": "src-1",
+            "record_type": "SOURCE_ROW",
+            "company_name": "Acme",
+            "source_workbook": "master.xlsx",
+            "source_sheet": "Sheet A",
+            "source_row": 2,
+            "source_field": "Company Name",
+            "raw_data_json": '{"cells":[{"value":"Acme"}]}',
+            "source_sha256": "hash-1",
+        }
+    ]
+
+    assert asyncio.run(adapter.append_source_records(records)) == (1, 0)
+    assert asyncio.run(adapter.append_source_records(records)) == (0, 1)
+    assert len(fake.tabs["SourceRecords"]) == 2
+    changed = [{**records[0], "source_sha256": "different"}]
+    try:
+        asyncio.run(adapter.append_source_records(changed))
+    except ValueError as exc:
+        assert "refusing to overwrite" in str(exc)
+    else:
+        raise AssertionError("conflicting source-row content was not rejected")
+
+
 def test_new_company_is_appended_with_all_supplied_fields():
     fake = FakeSheets()
     cols = _seed_company(fake)
@@ -188,3 +248,62 @@ def test_rejection_is_logged_to_rejected_tab():
     assert len(rows) == 1
     assert rows[0]["entity_name"] == "Acme Mining Pty Ltd"
     assert rows[0]["reason"] == "Not relevant"
+
+
+def test_activity_followup_update_preserves_the_original_call_note():
+    fake = FakeSheets()
+    columns = SPREADSHEET_TABS["activities"]["columns"]
+    fake.tabs["Activities"] = [columns]
+    adapter = _adapter_with(fake)
+    activity = {
+        "activity_id": "act-1",
+        "company_id": "cmp-1",
+        "contact_id": "",
+        "activity_type": "call",
+        "outcome": "Voicemail",
+        "notes": "Call the site manager on Tuesday.",
+        "happened_at": "2026-09-25T02:00:00+00:00",
+        "follow_up_at": "2026-09-29T02:00:00+00:00",
+        "follow_up_status": "OPEN",
+        "follow_up_completed_at": "",
+        "created_at": "2026-09-25T02:01:00+00:00",
+    }
+
+    assert asyncio.run(adapter.append_activity(activity)) == SyncState.SYNCED
+    assert asyncio.run(adapter.append_activity(activity)) == SyncState.SYNCED
+    assert len(fake.tabs["Activities"]) == 2  # header + one idempotent row
+    assert asyncio.run(adapter.complete_follow_up("act-1")) == SyncState.SYNCED
+
+    rows = asyncio.run(adapter.read_activities("cmp-1"))
+    assert len(rows) == 1
+    assert rows[0]["notes"] == "Call the site manager on Tuesday."
+    assert rows[0]["follow_up_status"] == "COMPLETED"
+    assert rows[0]["follow_up_completed_at"]
+
+
+def test_search_run_summary_upsert_is_persistent_and_idempotent():
+    fake = FakeSheets()
+    columns = SPREADSHEET_TABS["search_runs"]["columns"]
+    fake.tabs["SearchRuns"] = [columns]
+    adapter = _adapter_with(fake)
+    row = {
+        "job_id": "job-1",
+        "postcode": "4740",
+        "industry": "Mining",
+        "roles": '["Site Manager"]',
+        "status": "completed",
+        "companies_found": 4,
+        "contacts_found": 2,
+        "created_at": "2026-09-25T02:00:00+00:00",
+        "updated_at": "2026-09-25T02:05:00+00:00",
+        "error_summary": "",
+    }
+
+    assert asyncio.run(adapter.upsert_search_run(row)) == SyncState.SYNCED
+    row["status"] = "completed"
+    row["companies_found"] = 5
+    assert asyncio.run(adapter.upsert_search_run(row)) == SyncState.SYNCED
+
+    rows = asyncio.run(adapter.read_search_runs())
+    assert len(rows) == 1
+    assert rows[0]["companies_found"] == "5"

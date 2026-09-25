@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect, type CSSProperties } from "react";
+import { useState, useMemo, useEffect, useCallback, type CSSProperties } from "react";
 import { Search, ChevronDown, ChevronUp, ArrowUpDown, Loader2 } from "lucide-react";
 import type { Company, Contact, Location } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -17,6 +17,8 @@ import {
 } from "@/lib/api";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { Pager, PAGE_SIZE } from "@/components/shared/pager";
+import { CompanyActivityPanel } from "@/components/shared/company-activity";
+import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
 
 type Tab = "all" | "new" | "review" | "approved" | "stale" | "no-contact" | "rejected";
 
@@ -26,6 +28,26 @@ type RejectTarget = {
   id: string;
   label: string;
 };
+
+function sourceValues(raw?: string): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object" && "value" in item) {
+          const value = (item as { value?: unknown }).value;
+          return value == null ? JSON.stringify(item) : String(value);
+        }
+        return JSON.stringify(item);
+      });
+    }
+  } catch {
+    return [raw];
+  }
+  return [raw];
+}
 
 /** Compact pill-style button for Approve/Reject actions inside drawer cards. */
 function compactBtnStyle(variant: "primary" | "secondary"): CSSProperties {
@@ -73,10 +95,8 @@ export default function CompaniesPage() {
   const [rejectReason, setRejectReason] = useState("");
   const { toast } = useToast();
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
+  const load = useCallback(async (initial = false) => {
+      if (initial) setLoading(true);
       setLoadError(null);
       try {
         const [companiesData, locationsData, contactsData] = await Promise.all([
@@ -84,22 +104,18 @@ export default function CompaniesPage() {
           getLocations(),
           getContacts(),
         ]);
-        if (cancelled) return;
         setCompanies(companiesData);
         setLocationsState(locationsData);
         setContactsState(contactsData);
       } catch (err) {
-        if (cancelled) return;
         setLoadError(err instanceof Error ? err.message : "Failed to load companies");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (initial) setLoading(false);
       }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => { void load(true); }, [load]);
+  useSheetAutoRefresh(() => load());
 
   // Local replacements for the old fixture-module helpers `getBestContact`
   // / `getLocationForCompany`, which operated on the (now-removed) static
@@ -155,7 +171,10 @@ export default function CompaniesPage() {
         (c) =>
           c.companyName.toLowerCase().includes(q) ||
           c.normalizedName.includes(q) ||
-          (c.tradingName && c.tradingName.toLowerCase().includes(q))
+          (c.tradingName && c.tradingName.toLowerCase().includes(q)) ||
+          (c.businessLandlines && c.businessLandlines.toLowerCase().includes(q)) ||
+          (c.sourceVerification && c.sourceVerification.toLowerCase().includes(q)) ||
+          (c.legacySourceText && c.legacySourceText.toLowerCase().includes(q))
       );
     }
     result.sort((a, b) => {
@@ -211,7 +230,7 @@ export default function CompaniesPage() {
   return (
     <div style={{ padding: "24px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
+        <h1 data-tour="companies-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
           Companies
         </h1>
         <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginTop: "4px" }}>
@@ -528,6 +547,22 @@ export default function CompaniesPage() {
                   {selectedCompany.notes}
                 </div>
               )}
+              {([
+                ["Source verification / source notes", selectedCompany.sourceVerification],
+                ["Business landlines without a named contact", selectedCompany.businessLandlines],
+                ["Original SMC source text (unverified)", selectedCompany.legacySourceText],
+              ] as Array<[string, string | undefined]>).map(([label, value]) => {
+                const items = sourceValues(value);
+                if (!items.length) return null;
+                return (
+                  <div key={label} style={{ marginTop: 12, padding: "10px 12px", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)", background: "var(--color-bg)" }}>
+                    <div style={{ color: "var(--color-text-muted)", fontSize: 10, fontWeight: 600, marginBottom: 5 }}>{label}</div>
+                    <div style={{ display: "grid", gap: 4, color: "var(--color-text-secondary)", fontSize: 11, lineHeight: 1.45 }}>
+                      {items.map((item, index) => <div key={`${label}-${index}`}>{item}</div>)}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Locations */}
@@ -559,11 +594,16 @@ export default function CompaniesPage() {
                       {loc.address && `${loc.address}, `}
                       {loc.suburb}, {loc.state} {loc.postcode}
                     </div>
+                    {loc.rawPostcode && loc.rawPostcode !== loc.postcode && (
+                      <div style={{ fontSize: 11, color: "var(--color-text-muted)", marginTop: 3 }}>
+                        Original postcode: {loc.rawPostcode} · not independently verified
+                      </div>
+                    )}
                     <div style={{ marginTop: "4px" }}>
                       <StatusBadge status={loc.verificationStatus} showDot />
                     </div>
                     <div style={{ display: "flex", gap: "6px", marginTop: "8px" }}>
-                      {loc.verificationStatus !== "VERIFIED" && (
+                      {loc.verificationStatus !== "APPROVED" && (
                         <button
                           disabled={disabled}
                           style={{ ...compactBtnStyle("primary"), opacity: disabled ? 0.5 : 1 }}
@@ -588,8 +628,7 @@ export default function CompaniesPage() {
                                   l.locationId === loc.locationId
                                     ? {
                                         ...l,
-                                        verificationStatus: "VERIFIED",
-                                        lastVerified: new Date().toISOString(),
+                                        verificationStatus: "APPROVED",
                                       }
                                     : l
                                 )
@@ -677,6 +716,11 @@ export default function CompaniesPage() {
                         {ct.mobile}
                       </div>
                     )}
+                    {ct.professionalUrlRaw && (
+                      <div style={{ fontSize: "11px", color: "var(--color-text-muted)", marginTop: "4px", overflowWrap: "anywhere" }}>
+                        Original professional URL (unverified): {ct.professionalUrlRaw}
+                      </div>
+                    )}
                     <div style={{ marginTop: "4px" }}>
                       <StatusBadge status={ct.contactStatus} showDot />
                     </div>
@@ -706,7 +750,6 @@ export default function CompaniesPage() {
                                     ? {
                                         ...c,
                                         contactStatus: "APPROVED",
-                                        lastVerified: new Date().toISOString(),
                                       }
                                     : c
                                 )
@@ -756,6 +799,11 @@ export default function CompaniesPage() {
               })}
             </div>
 
+            <CompanyActivityPanel
+              companyId={selectedCompany.companyId}
+              contacts={selectedContacts}
+            />
+
             {/* Actions */}
             <div style={{ display: "flex", gap: "8px" }}>
               {selectedCompany.status !== "APPROVED" && (
@@ -777,7 +825,7 @@ export default function CompaniesPage() {
                       setCompanies((prev) =>
                         prev.map((c) =>
                           c.companyId === selectedCompany.companyId
-                            ? { ...c, status: "APPROVED", lastVerified: new Date().toISOString() }
+                            ? { ...c, status: "APPROVED" }
                             : c
                         )
                       );

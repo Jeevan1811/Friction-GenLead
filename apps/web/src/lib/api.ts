@@ -5,6 +5,8 @@ import type {
   RejectedEntity,
   SyncStatus,
   JobRun,
+  CompanyActivity,
+  SourceRecordPage,
 } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
@@ -206,6 +208,65 @@ export async function getSyncStatus(): Promise<SyncStatus> {
   return apiGet<SyncStatus>("/internal/data/sync-status");
 }
 
+export async function getSourceRecords(
+  query: string,
+  page: number,
+  pageSize = 50
+): Promise<SourceRecordPage> {
+  const params = new URLSearchParams({
+    q: query,
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  return apiGet<SourceRecordPage>(`/internal/data/source-records?${params}`);
+}
+
+export type CompanyActivityDraft = Pick<
+  CompanyActivity,
+  "activityId" | "activityType" | "notes" | "happenedAt"
+> & {
+  contactId?: string;
+  outcome?: string;
+  followUpAt?: string;
+};
+
+export async function getCompanyActivities(companyId: string): Promise<CompanyActivity[]> {
+  return apiGet<CompanyActivity[]>(
+    `/internal/data/companies/${encodeURIComponent(companyId)}/activities`
+  );
+}
+
+export async function createCompanyActivity(
+  companyId: string,
+  activity: CompanyActivityDraft
+): Promise<CompanyActivity> {
+  return apiPost<CompanyActivity>(
+    `/internal/data/companies/${encodeURIComponent(companyId)}/activities`,
+    activity
+  );
+}
+
+export async function getFollowUps(): Promise<CompanyActivity[]> {
+  return apiGet<CompanyActivity[]>("/internal/data/follow-ups");
+}
+
+export async function updateFollowUpStatus(
+  activityId: string,
+  completed: boolean
+): Promise<{ activityId: string; followUpStatus: string; syncStatus: string }> {
+  const res = await fetch(
+    `${API_BASE}/internal/data/activities/${encodeURIComponent(activityId)}/follow-up`,
+    {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ completed }),
+    }
+  );
+  if (!res.ok) throw new Error(await extractErrorMessage(res));
+  return res.json();
+}
+
 /* ---------- Jev research jobs (/internal/ops/jobs) ----------
  *
  * Backs the Searches pages, which used to render the mock `searchRuns`
@@ -224,6 +285,9 @@ interface JobListRow {
   companies_found: number;
   contacts_found: number;
   created_at: string;
+  updated_at?: string;
+  roles?: string[];
+  error_summary?: string;
 }
 
 export async function getJobs(): Promise<JobRun[]> {
@@ -236,5 +300,8 @@ export async function getJobs(): Promise<JobRun[]> {
     companiesFound: r.companies_found,
     contactsFound: r.contacts_found,
     createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    roles: r.roles,
+    errorSummary: r.error_summary,
   }));
 }

@@ -1,35 +1,28 @@
-"""Discovery, verification, contact research, and evaluation endpoints.
+"""Discovery and decision endpoints.
 
-All endpoints return realistic QLD mock data while the real integrations
-(ABR, web crawling, etc.) are wired up.
+Human approve/reject actions remain available; research and verification
+routes fail closed until live data providers replace the former demo data.
 """
 
 import logging
 from datetime import datetime, timezone
-from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..models.enums import (
     CompanyStatus,
     ContactStatus,
     EvidenceSource,
-    IndustryFit,
     LocationStatus,
-    LocationType,
     ReliabilityTier,
-    RolePriority,
     SiteEvidence,
     SyncState,
 )
 from ..models.schemas import (
-    Company,
-    Contact,
     ContactResearchRequest,
     ContactResearchResponse,
     EvaluateRequest,
     EvaluateResponse,
-    Location,
     SearchRequest,
     SearchResponse,
     VerifyCompanyRequest,
@@ -48,167 +41,6 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Stable mock IDs so tests can reference them
-# ---------------------------------------------------------------------------
-_CS_ENERGY_ID = UUID("a1b2c3d4-0001-4000-8000-000000000001")
-_STANWELL_ID = UUID("a1b2c3d4-0002-4000-8000-000000000002")
-_SUN_METALS_ID = UUID("a1b2c3d4-0003-4000-8000-000000000003")
-_INCITEC_ID = UUID("a1b2c3d4-0004-4000-8000-000000000004")
-
-_CS_LOCATION_ID = UUID("b1b2c3d4-0001-4000-8000-000000000001")
-_STANWELL_LOCATION_ID = UUID("b1b2c3d4-0002-4000-8000-000000000002")
-_SUN_METALS_LOCATION_ID = UUID("b1b2c3d4-0003-4000-8000-000000000003")
-_INCITEC_LOCATION_ID = UUID("b1b2c3d4-0004-4000-8000-000000000004")
-
-
-def _mock_companies(postcode: str) -> list[Company]:
-    """Return realistic QLD industrial companies for any postcode."""
-    return [
-        Company(
-            id=_CS_ENERGY_ID,
-            name="CS Energy",
-            abn="54078848745",
-            website="https://www.csenergy.com.au",
-            phone="07 3854 7777",
-            industry="Electricity Generation",
-            status=CompanyStatus.NEW,
-            industry_fit=IndustryFit.TARGET,
-            reliability=ReliabilityTier.A,
-            source=EvidenceSource.ABR,
-            locations=[
-                Location(
-                    id=_CS_LOCATION_ID,
-                    company_id=_CS_ENERGY_ID,
-                    name="Callide Power Station",
-                    address="Callide Power Station Rd, Biloela QLD 4715",
-                    postcode=postcode,
-                    location_type=LocationType.PLANT,
-                    status=LocationStatus.UNVERIFIED,
-                    site_evidence=SiteEvidence.LIKELY,
-                    source=EvidenceSource.ABR,
-                ),
-            ],
-        ),
-        Company(
-            id=_STANWELL_ID,
-            name="Stanwell Corporation",
-            abn="37078848674",
-            website="https://www.stanwell.com",
-            phone="07 3228 4444",
-            industry="Electricity Generation",
-            status=CompanyStatus.NEW,
-            industry_fit=IndustryFit.TARGET,
-            reliability=ReliabilityTier.A,
-            source=EvidenceSource.ABR,
-            locations=[
-                Location(
-                    id=_STANWELL_LOCATION_ID,
-                    company_id=_STANWELL_ID,
-                    name="Stanwell Power Station",
-                    address="Stanwell Power Station Rd, Stanwell QLD 4702",
-                    postcode=postcode,
-                    location_type=LocationType.PLANT,
-                    status=LocationStatus.UNVERIFIED,
-                    site_evidence=SiteEvidence.LIKELY,
-                    source=EvidenceSource.ABR,
-                ),
-            ],
-        ),
-        Company(
-            id=_SUN_METALS_ID,
-            name="Sun Metals Corporation",
-            abn="19074758014",
-            website="https://www.sunmetals.com.au",
-            phone="07 4758 8888",
-            industry="Zinc Refining",
-            status=CompanyStatus.NEW,
-            industry_fit=IndustryFit.TARGET,
-            reliability=ReliabilityTier.B,
-            source=EvidenceSource.PUBLIC_SEARCH,
-            locations=[
-                Location(
-                    id=_SUN_METALS_LOCATION_ID,
-                    company_id=_SUN_METALS_ID,
-                    name="Sun Metals Zinc Refinery",
-                    address="Stuart Dr, Stuart QLD 4811",
-                    postcode=postcode,
-                    location_type=LocationType.PLANT,
-                    status=LocationStatus.UNVERIFIED,
-                    site_evidence=SiteEvidence.CONFIRMED,
-                    source=EvidenceSource.OFFICIAL_WEBSITE,
-                ),
-            ],
-        ),
-        Company(
-            id=_INCITEC_ID,
-            name="Incitec Pivot",
-            abn="42004080264",
-            website="https://www.incitecpivot.com.au",
-            phone="03 8695 4400",
-            industry="Chemical Manufacturing",
-            status=CompanyStatus.NEW,
-            industry_fit=IndustryFit.ADJACENT,
-            reliability=ReliabilityTier.A,
-            source=EvidenceSource.ABR,
-            locations=[
-                Location(
-                    id=_INCITEC_LOCATION_ID,
-                    company_id=_INCITEC_ID,
-                    name="Phosphate Hill Facility",
-                    address="Phosphate Hill QLD 4825",
-                    postcode=postcode,
-                    location_type=LocationType.MINE,
-                    status=LocationStatus.UNVERIFIED,
-                    site_evidence=SiteEvidence.LIKELY,
-                    source=EvidenceSource.ABR,
-                ),
-            ],
-        ),
-    ]
-
-
-def _mock_contacts(company_id: UUID) -> list[Contact]:
-    """Return realistic mock contacts for a given company."""
-    return [
-        Contact(
-            company_id=company_id,
-            first_name="Sarah",
-            last_name="Mitchell",
-            role="Plant Manager",
-            email="s.mitchell@example.com.au",
-            phone="07 4900 1234",
-            status=ContactStatus.NEW,
-            role_priority=RolePriority.PRIORITY,
-            source=EvidenceSource.OFFICIAL_WEBSITE,
-            reliability=ReliabilityTier.B,
-        ),
-        Contact(
-            company_id=company_id,
-            first_name="James",
-            last_name="Nguyen",
-            role="Maintenance Superintendent",
-            email="j.nguyen@example.com.au",
-            phone="07 4900 1235",
-            status=ContactStatus.NEW,
-            role_priority=RolePriority.PRIORITY,
-            source=EvidenceSource.PUBLIC_SEARCH,
-            reliability=ReliabilityTier.C,
-        ),
-        Contact(
-            company_id=company_id,
-            first_name="Karen",
-            last_name="O'Brien",
-            role="Procurement Officer",
-            email="k.obrien@example.com.au",
-            status=ContactStatus.NEW,
-            role_priority=RolePriority.SECONDARY,
-            source=EvidenceSource.PUBLIC_SEARCH,
-            reliability=ReliabilityTier.C,
-        ),
-    ]
-
-
-# ---------------------------------------------------------------------------
 # POST /internal/discover
 # ---------------------------------------------------------------------------
 
@@ -219,19 +51,9 @@ async def discover(request: SearchRequest) -> SearchResponse:
     Accepts a 4-digit Australian postcode and optional industry filter.
     Returns matching companies with their known locations.
     """
-    companies = _mock_companies(request.postcode)
-
-    if request.industry:
-        industry_lower = request.industry.lower()
-        companies = [
-            c for c in companies
-            if c.industry and industry_lower in c.industry.lower()
-        ]
-
-    return SearchResponse(
-        postcode=request.postcode,
-        companies_found=len(companies),
-        companies=companies,
+    raise HTTPException(
+        status_code=503,
+        detail="Live postcode company search is not configured. No sample records were returned as prospects.",
     )
 
 
@@ -245,10 +67,15 @@ async def verify_company(request: VerifyCompanyRequest) -> VerifyCompanyResponse
 
     This is the human-in-the-loop endpoint: the frontend calls it with
     action="approve" or action="reject" after a user reviews a company in
-    the dashboard. Jev/automation never calls this with an action set --
-    doing so would be an auto-approve, which is not allowed. With no
-    action, it just runs verification checks and returns them for review.
+    the dashboard. Jev/automation never calls this with an action set.
+    External checks are currently unavailable and return 503.
     """
+    if request.action is None:
+        raise HTTPException(
+            status_code=503,
+            detail="External ABN and website verification is not connected yet; no verification claim was made.",
+        )
+
     if request.action in ("approve", "reject"):
         new_status = (
             CompanyStatus.APPROVED
@@ -261,10 +88,9 @@ async def verify_company(request: VerifyCompanyRequest) -> VerifyCompanyResponse
             return VerifyCompanyResponse(
                 company_id=request.company_id,
                 status=new_status,
-                abn_valid=True,
-                evidence_sources=[EvidenceSource.ABR],
-                reliability=ReliabilityTier.B,
-                notes="Approved by user.",
+                evidence_sources=[EvidenceSource.USER],
+                reliability=ReliabilityTier.C,
+                notes="Marked approved by the user; this is not an external ABR verification.",
                 sync_status=sync_status,
             )
 
@@ -276,20 +102,6 @@ async def verify_company(request: VerifyCompanyRequest) -> VerifyCompanyResponse
             notes=request.reason or "Rejected by user.",
             sync_status=sync_status,
         )
-
-    return VerifyCompanyResponse(
-        company_id=request.company_id,
-        status=CompanyStatus.REVIEW,
-        abn_valid=True,
-        website_reachable=True,
-        evidence_sources=[EvidenceSource.ABR, EvidenceSource.OFFICIAL_WEBSITE],
-        reliability=ReliabilityTier.B,
-        notes="ABN matches ASIC records. Website confirmed active.",
-        # No sheet write is attempted for a plain verification check (no
-        # action) -- nothing to be "pending" or "synced" about.
-        sync_status=SyncState.NEVER.value,
-    )
-
 
 async def _persist_company_decision(
     request: VerifyCompanyRequest,
@@ -323,7 +135,6 @@ async def _persist_company_decision(
             "company_name": request.company_name or "",
             "status": new_status.value,
             "last_modified": now,
-            "last_verified": now,
             "notes": request.reason or "",
         }
         result = await sheets_adapter.upsert_company(row)
@@ -364,8 +175,8 @@ async def _persist_company_decision(
 async def verify_location(request: VerifyLocationRequest) -> VerifyLocationResponse:
     """Verify a location, or record a human approve/reject decision.
 
-    ABN registration address != operating site. With no action, this
-    confirms physical presence using multiple evidence sources (mock).
+    ABN registration address != operating site. External site checks are
+    currently unavailable and return 503.
 
     This is also the human-in-the-loop endpoint for locations, mirroring
     ``verify_company``: the frontend calls it with action="approve" or
@@ -373,9 +184,15 @@ async def verify_location(request: VerifyLocationRequest) -> VerifyLocationRespo
     dashboard. Jev/automation never calls this with an action set --
     doing so would be an auto-approve, which is not allowed.
     """
+    if request.action is None:
+        raise HTTPException(
+            status_code=503,
+            detail="External operating-site verification is not connected yet; no verification claim was made.",
+        )
+
     if request.action in ("approve", "reject"):
         new_status = (
-            LocationStatus.VERIFIED
+            LocationStatus.APPROVED
             if request.action == "approve"
             else LocationStatus.DISPUTED
         )
@@ -386,10 +203,10 @@ async def verify_location(request: VerifyLocationRequest) -> VerifyLocationRespo
                 location_id=request.location_id,
                 company_id=request.company_id,
                 status=new_status,
-                site_evidence=SiteEvidence.CONFIRMED,
-                address_confirmed=True,
+                site_evidence=SiteEvidence.UNCERTAIN,
+                address_confirmed=False,
                 evidence_sources=[EvidenceSource.USER],
-                notes="Approved by user.",
+                notes="Approved by the user; no external site-verification source ran.",
                 sync_status=sync_status,
             )
 
@@ -403,23 +220,6 @@ async def verify_location(request: VerifyLocationRequest) -> VerifyLocationRespo
             notes=request.reason or "Rejected by user.",
             sync_status=sync_status,
         )
-
-    return VerifyLocationResponse(
-        location_id=request.location_id,
-        company_id=request.company_id,
-        status=LocationStatus.VERIFIED,
-        site_evidence=SiteEvidence.CONFIRMED,
-        address_confirmed=True,
-        evidence_sources=[
-            EvidenceSource.QLD_PLS,
-            EvidenceSource.OFFICIAL_WEBSITE,
-        ],
-        notes="Site confirmed via QLD Planning & Land Services and company website.",
-        # No sheet write is attempted for a plain verification check (no
-        # action) -- nothing to be "pending" or "synced" about.
-        sync_status=SyncState.NEVER.value,
-    )
-
 
 async def _persist_location_decision(
     request: VerifyLocationRequest,
@@ -460,7 +260,6 @@ async def _persist_location_decision(
             "postcode": request.postcode or "",
             "verification_status": new_status.value,
             "last_modified": now,
-            "last_verified": now,
         }
         result = await sheets_adapter.upsert_location(row)
         if request.action == "reject":
@@ -504,9 +303,15 @@ async def verify_contact(request: VerifyContactRequest) -> VerifyContactResponse
     ``verify_company``/``verify_location``: the frontend calls it with
     action="approve" or action="reject" after a user reviews a contact
     card in the dashboard. Jev/automation never calls this with an action
-    set -- doing so would be an auto-approve, which is not allowed. With
-    no action, it just runs a verification check and returns it.
+    set -- doing so would be an auto-approve, which is not allowed.
+    External contact checks are currently unavailable and return 503.
     """
+    if request.action is None:
+        raise HTTPException(
+            status_code=503,
+            detail="External contact verification is not connected yet; no verification claim was made.",
+        )
+
     if request.action in ("approve", "reject"):
         new_status = (
             ContactStatus.APPROVED
@@ -527,17 +332,6 @@ async def verify_contact(request: VerifyContactRequest) -> VerifyContactResponse
             ),
             sync_status=sync_status,
         )
-
-    return VerifyContactResponse(
-        contact_id=request.contact_id,
-        company_id=request.company_id,
-        status=ContactStatus.VERIFIED,
-        notes="Contact details verified.",
-        # No sheet write is attempted for a plain verification check (no
-        # action) -- nothing to be "pending" or "synced" about.
-        sync_status=SyncState.NEVER.value,
-    )
-
 
 async def _persist_contact_decision(
     request: VerifyContactRequest,
@@ -577,7 +371,6 @@ async def _persist_contact_decision(
             "mobile": request.mobile or "",
             "contact_status": new_status.value,
             "last_modified": now,
-            "last_verified": now,
         }
         result = await sheets_adapter.upsert_contact(row)
         if request.action == "reject":
@@ -622,19 +415,9 @@ async def research_contacts(
     No mass LinkedIn scraping -- uses public directory, company website,
     and industry publication sources only.
     """
-    contacts = _mock_contacts(request.company_id)
-
-    if request.roles:
-        roles_lower = [r.lower() for r in request.roles]
-        contacts = [
-            c for c in contacts
-            if any(rl in c.role.lower() for rl in roles_lower)
-        ]
-
-    return ContactResearchResponse(
-        company_id=request.company_id,
-        contacts_found=len(contacts),
-        contacts=contacts,
+    raise HTTPException(
+        status_code=503,
+        detail="Live contact discovery is not connected yet. No sample contacts were returned.",
     )
 
 
@@ -649,19 +432,7 @@ async def evaluate(request: EvaluateRequest) -> EvaluateResponse:
     Scores the company on how well it matches the target prospect profile
     (heavy industry, mining, power generation, manufacturing in QLD).
     """
-    return EvaluateResponse(
-        company_id=request.company_id,
-        industry_fit=IndustryFit.TARGET,
-        confidence=0.85,
-        reasoning=(
-            "Company operates power generation facilities in Queensland. "
-            "Primary industry (Electricity Generation) is a target vertical. "
-            "Multiple confirmed operating sites with maintenance-intensive "
-            "plant equipment."
-        ),
-        evidence_sources=[
-            EvidenceSource.ABR,
-            EvidenceSource.OFFICIAL_WEBSITE,
-            EvidenceSource.QLD_PLS,
-        ],
+    raise HTTPException(
+        status_code=503,
+        detail="Company-fit scoring is unavailable until it can use verified company-source data.",
     )

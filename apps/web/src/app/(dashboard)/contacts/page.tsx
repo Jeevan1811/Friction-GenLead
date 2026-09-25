@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Search, Mail, Phone } from "lucide-react";
 import { getContacts, getCompanies } from "@/lib/api";
 import type { Contact, Company } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { Pager, PAGE_SIZE } from "@/components/shared/pager";
+import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
 
 const priorityFilters = ["ALL", "PRIORITY", "SECONDARY", "OTHER"];
 
@@ -18,31 +19,25 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
+  const load = useCallback(async (initial = false) => {
+      if (initial) setLoading(true);
       setError(null);
       try {
         const [contactsData, companiesData] = await Promise.all([
           getContacts(),
           getCompanies(),
         ]);
-        if (cancelled) return;
         setContacts(contactsData);
         setCompanies(companiesData);
       } catch (err) {
-        if (cancelled) return;
         setError(err instanceof Error ? err.message : "Failed to load contacts");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (initial) setLoading(false);
       }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
   }, []);
+
+  useEffect(() => { void load(true); }, [load]);
+  useSheetAutoRefresh(() => load());
 
   const companyById = useMemo(
     () => new Map(companies.map((c) => [c.companyId, c])),
@@ -58,6 +53,9 @@ export default function ContactsPage() {
         return (
           ct.name.toLowerCase().includes(q) ||
           ct.position?.toLowerCase().includes(q) ||
+          ct.professionalUrlRaw?.toLowerCase().includes(q) ||
+          ct.landline?.toLowerCase().includes(q) ||
+          ct.mobile?.toLowerCase().includes(q) ||
           company?.companyName.toLowerCase().includes(q) ||
           ct.businessEmail?.toLowerCase().includes(q)
         );
@@ -78,7 +76,7 @@ export default function ContactsPage() {
   return (
     <div style={{ padding: "24px" }}>
       <div style={{ marginBottom: "24px" }}>
-        <h1 style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
+        <h1 data-tour="contacts-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
           Contacts
         </h1>
         <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginTop: "4px" }}>

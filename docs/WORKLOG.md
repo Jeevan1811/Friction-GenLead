@@ -177,3 +177,11 @@
 - Added four tests for extracting IDs, building scoped/deep company links, and filtering to the selected run. Combined with the existing trusted-device tests, `node --test apps/web/tests/research-run-results.test.mjs apps/web/tests/auth/trusted-device.test.mjs` reports **8 passed**. `npm run typecheck --workspace=apps/web` and `npm run build --workspace=apps/web` pass. `git diff --check` reports only repository LF/CRLF notices.
 - Working branch: `codex/genlead-dashboard-polish`, based on `origin/main` at `e32cf17`. Existing uncommitted auth/device-lock changes and `.playwright-cli/` are user-owned and remain excluded. No Google Sheet write, OTP, `.env` read/change, VPS restart, or production deployment has occurred for this UI fix.
 - Next: merge/deploy only the scoped UI changes, then browser-test the 30-company run link, run filter and drawer, Settings/profile navigation and avatar alignment, and tour entry. Leave auth/device-lock changes untouched.
+
+## 2026-09-26 — run-scoped status badge correction
+
+- Truth: **PR #9 DEPLOYED**; **30 SAVED COMPANY ROWS OPEN CORRECTLY**; **STATUS BADGE MISMATCH FOUND IN BROWSER QA**; **CORRECTION BUILT LOCALLY, NOT YET DEPLOYED**.
+- On the deployed `/companies?researchRun=…` page, the run banner and table showed the Gladstone cohort, but status-tab badges still counted the full 4,229-company dataset. This was misleading even though row filtering worked.
+- `Companies` now derives the table and tab counts from the same run-scoped company list. No changes to saved records, Sheets, or backend behavior.
+- Verification on `codex/genlead-run-scoped-counts` based on production commit `072c074`: eight Node tests pass; web typecheck and Next production build pass. The existing generic repository warning from line endings may appear in `git diff --check`.
+- The run link and `/settings` layout have been browser-verified live; status badges and company drawer remain to be rechecked after this follow-up deploy. No new search, Sheet write, OTP, `.env` access, or auth/device-lock change was made.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import {
   Search,
   ChevronDown,
@@ -19,6 +20,7 @@ import { startResearch, getJobs, getResearchResults } from "@/lib/api";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { SampleDataNotice } from "@/components/shared/sample-data-notice";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
+import { buildResearchRunCompaniesHref } from "@/lib/research-run-results";
 
 interface ResearchCompanyResult {
   company_id?: string;
@@ -97,6 +99,7 @@ export default function SearchPage() {
   const [submitting, setSubmitting] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [researchResults, setResearchResults] = useState<{
+    jobId: string;
     companies: ResearchCompanyResult[];
     contacts: ResearchContactResult[];
   } | null>(null);
@@ -163,7 +166,7 @@ export default function SearchPage() {
             marginTop: "4px",
           }}
         >
-          Find public business candidates by location, anywhere in the world
+          Find nearby company candidates.
         </p>
       </div>
 
@@ -217,7 +220,7 @@ export default function SearchPage() {
               }}
             />
             <p style={{ fontSize: "11px", color: "var(--color-text-muted)", marginTop: "4px" }}>
-              Searches Overture Maps Places within about 5 km of the place centre. Add a suburb or region to narrow a large city. Coverage is uneven and results need review.
+              Searches mapped places within about 5 km of the place centre.
             </p>
             {locationError && (
               <p
@@ -467,6 +470,7 @@ export default function SearchPage() {
             void getResearchResults(data.job_id)
               .then((results) => {
                 setResearchResults({
+                  jobId: results.job_id,
                   companies: results.companies as ResearchCompanyResult[],
                   contacts: results.contacts as ResearchContactResult[],
                 });
@@ -488,7 +492,15 @@ export default function SearchPage() {
         <div className="surface-card" style={{ padding: "20px", marginBottom: "32px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", marginBottom: "12px" }}>
             <h2 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>New public-source matches</h2>
-            <a href="/companies" className="btn-secondary" style={{ textDecoration: "none" }}>Review in Companies</a>
+            {researchResults.companies.length > 0 && (
+              <Link
+                href={buildResearchRunCompaniesHref(researchResults.jobId)}
+                className="btn-secondary"
+                style={{ textDecoration: "none" }}
+              >
+                View {researchResults.companies.length} companies
+              </Link>
+            )}
           </div>
           {researchResults.companies.length === 0 ? (
             <p style={{ fontSize: "13px", color: "var(--color-text-secondary)" }}>No new matches were added. Existing and rejected businesses are suppressed to avoid duplicates.</p>
@@ -514,17 +526,26 @@ export default function SearchPage() {
                   : sourceProvider.toLowerCase().includes("abn") || sourceProvider.toLowerCase().includes("abr")
                     ? "ABR name match"
                     : "Public-source candidate";
+                const companyHref = company.company_id
+                  ? buildResearchRunCompaniesHref(researchResults.jobId, company.company_id)
+                  : null;
+                const locationLabel = [company.country, company.state, company.postcode].filter(Boolean).join(" · ");
                 return (
                   <div key={company.company_id || `${company.abn || companyName}-${index}`} style={{ padding: "12px", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)" }}>
                     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "12px" }}>
-                      <strong style={{ fontSize: "14px" }}>{companyName}</strong>
+                      {companyHref ? (
+                        <Link href={companyHref} style={{ fontSize: "14px", fontWeight: 600, color: "var(--color-accent)", textDecoration: "underline", textUnderlineOffset: "3px" }}>
+                          {companyName}
+                        </Link>
+                      ) : (
+                        <strong style={{ fontSize: "14px" }}>{companyName}</strong>
+                      )}
                       <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>{sourceName} · needs review</span>
                     </div>
                     <div style={{ marginTop: "4px", fontSize: "12px", color: "var(--color-text-secondary)" }}>
-                      {[company.country, company.state, company.postcode].filter(Boolean).join(" · ") || "Location details may be incomplete"}
-                      {company.abn ? ` · ABN ${company.abn} (${company.abn_status || "status unconfirmed"})` : " · no ABN supplied"}
-                      {company.industry ? ` · source tag: ${company.industry}` : ""}
-                      {" · sector, operation and legal status are not independently verified"}
+                      {locationLabel || "Location not listed"}
+                      {company.abn ? ` · ABN ${company.abn}` : ""}
+                      {company.industry ? ` · ${company.industry}` : ""}
                     </div>
                     {company.industry_match && (
                       <div style={{ marginTop: "4px", fontSize: "11px", color: "var(--color-text-muted)" }}>
@@ -633,17 +654,6 @@ export default function SearchPage() {
                   display: "flex",
                   alignItems: "center",
                   gap: "16px",
-                  cursor: "pointer",
-                  transition: "all var(--transition-fast)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "var(--color-accent)";
-                  e.currentTarget.style.background =
-                    "var(--color-accent-light)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--color-border)";
-                  e.currentTarget.style.background = "var(--color-surface)";
                 }}
               >
                 <div
@@ -709,18 +719,38 @@ export default function SearchPage() {
                     flexShrink: 0,
                   }}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "4px",
-                      fontSize: "12px",
-                      color: "var(--color-text-secondary)",
-                    }}
-                  >
-                    <Building2 size={14} />
-                    {run.companiesFound}
-                  </div>
+                  {run.status !== "running" && run.companiesFound > 0 ? (
+                    <Link
+                      href={buildResearchRunCompaniesHref(run.jobId)}
+                      aria-label={`View ${run.companiesFound} companies from ${run.location || run.postcode}`}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        minHeight: "40px",
+                        color: "var(--color-accent)",
+                        textDecoration: "underline",
+                        textUnderlineOffset: "3px",
+                        fontSize: "12px",
+                      }}
+                    >
+                      <Building2 size={14} />
+                      {run.companiesFound} companies
+                    </Link>
+                  ) : (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        fontSize: "12px",
+                        color: "var(--color-text-secondary)",
+                      }}
+                    >
+                      <Building2 size={14} />
+                      {run.companiesFound} companies
+                    </div>
+                  )}
                   <div
                     style={{
                       display: "flex",

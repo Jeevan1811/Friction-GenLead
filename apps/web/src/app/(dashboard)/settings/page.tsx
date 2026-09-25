@@ -37,18 +37,12 @@ export default function SettingsPage() {
 
   return (
     <div style={{ padding: "24px", maxWidth: "920px" }}>
-      <div style={{ marginBottom: "28px" }}>
-        <h1 data-tour="settings-overview">Settings</h1>
-        <p style={{ color: "var(--color-text-secondary)", marginTop: "6px" }}>
-          Your guide and the current data connection status.
-        </p>
-      </div>
 
       <section
         data-tour="settings-guide"
         className="surface-card"
         aria-labelledby="dashboard-guide-title"
-        style={{ padding: "24px", marginBottom: "20px" }}
+        style={{ padding: "20px", marginBottom: "16px" }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: "16px" }}>
           <div
@@ -76,7 +70,7 @@ export default function SettingsPage() {
               </span>
             </div>
             <p style={{ color: "var(--color-text-secondary)", marginTop: "8px", maxWidth: "680px" }}>
-              Walk through Search, Companies, Locations, Contacts, Original source data, Follow-ups, Search History and Rejected. Use Back, Next or Skip at any time. The guide explains which parts are live and which are still incomplete; it never edits a record.
+              A short, read-only tour of the main screens.
             </p>
             <button
               type="button"
@@ -87,7 +81,7 @@ export default function SettingsPage() {
                 justifyContent: "center",
                 gap: "8px",
                 minHeight: "44px",
-                marginTop: "18px",
+                marginTop: "12px",
                 padding: "0 16px",
                 border: "1px solid var(--color-accent)",
                 borderRadius: "var(--radius-sm)",
@@ -99,7 +93,7 @@ export default function SettingsPage() {
               }}
             >
               <Play size={15} fill="currentColor" />
-              Start dashboard guide
+              Start tour
             </button>
           </div>
         </div>
@@ -109,7 +103,7 @@ export default function SettingsPage() {
         data-tour="settings-sheet-status"
         className="surface-card"
         aria-labelledby="sheet-status-title"
-        style={{ padding: "24px" }}
+        style={{ padding: "20px" }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: "16px" }}>
           <div
@@ -154,7 +148,7 @@ export default function SettingsPage() {
               </div>
             )}
             <p style={{ color: "var(--color-text-muted)", marginTop: "12px", fontSize: "12px" }}>
-              Google Sheet edits refresh the dashboard automatically while a page is open, and again when you return to it. Original workbook rows are available under Original data.
+              Sheet changes refresh automatically. Original rows are under Original data.
             </p>
           </div>
         </div>

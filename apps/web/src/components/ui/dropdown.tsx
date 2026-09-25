@@ -123,7 +123,24 @@ export function Dropdown({ trigger, items, className }: DropdownProps) {
       {/* Trigger */}
       <div
         onClick={() => setOpen((o) => !o)}
-        style={{ cursor: "pointer" }}
+        className="dropdown-trigger"
+        aria-label="Open user menu"
+        style={{
+          width: 40,
+          height: 40,
+          minWidth: 40,
+          minHeight: 40,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 0,
+          border: 0,
+          background: "transparent",
+          color: "inherit",
+          font: "inherit",
+          lineHeight: 0,
+          cursor: "pointer",
+        }}
         role="button"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -227,6 +244,11 @@ if (typeof document !== "undefined") {
       .dropdown-item:focus-visible {
         outline: 2px solid var(--color-accent);
         outline-offset: -2px;
+      }
+      .dropdown-trigger:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 2px;
+        border-radius: var(--radius-sm);
       }
     `;
     document.head.appendChild(style);

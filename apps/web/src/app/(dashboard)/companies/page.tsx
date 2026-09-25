@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback, type CSSProperties } from "react";
+import Link from "next/link";
 import { Search, ChevronDown, ChevronUp, ArrowUpDown, Loader2, Users } from "lucide-react";
 import type { Company, Contact, Location } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -13,6 +14,7 @@ import {
   verifyContact,
   researchCompanyContacts,
   getCompanies,
+  getResearchResults,
   getLocations,
   getContacts,
 } from "@/lib/api";
@@ -20,6 +22,10 @@ import { PageLoading, PageError } from "@/components/shared/page-status";
 import { Pager, PAGE_SIZE } from "@/components/shared/pager";
 import { CompanyActivityPanel } from "@/components/shared/company-activity";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
+import {
+  extractResearchRunCompanyIds,
+  filterCompaniesToResearchRun,
+} from "@/lib/research-run-results";
 
 type Tab = "all" | "new" | "review" | "approved" | "stale" | "no-contact" | "rejected";
 
@@ -79,6 +85,11 @@ export default function CompaniesPage() {
   const [sortKey, setSortKey] = useState<SortKey>("companyName");
   const [sortAsc, setSortAsc] = useState(true);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [researchRunId, setResearchRunId] = useState<string | null>(null);
+  const [researchRunLocation, setResearchRunLocation] = useState("");
+  const [researchRunCompanyIds, setResearchRunCompanyIds] = useState<string[] | null>(null);
+  const [researchRunLoading, setResearchRunLoading] = useState(false);
+  const [researchRunError, setResearchRunError] = useState<string | null>(null);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [locationsState, setLocationsState] = useState<Location[]>([]);
   const [contactsState, setContactsState] = useState<Contact[]>([]);
@@ -121,6 +132,39 @@ export default function CompaniesPage() {
 
   useEffect(() => { void load(true); }, [load]);
   useSheetAutoRefresh(() => load());
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const companyId = params.get("companyId");
+    const runId = params.get("researchRun");
+    if (companyId) setSelectedCompanyId(companyId);
+    if (!runId) return;
+
+    let cancelled = false;
+    setResearchRunId(runId);
+    setResearchRunLoading(true);
+    setResearchRunError(null);
+    void getResearchResults(runId)
+      .then((results) => {
+        if (cancelled) return;
+        setResearchRunLocation(results.location);
+        setResearchRunCompanyIds(extractResearchRunCompanyIds(results.companies));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setResearchRunCompanyIds([]);
+        setResearchRunError(
+          err instanceof Error ? err.message : "Could not load this search's saved companies."
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setResearchRunLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Local replacements for the old fixture-module helpers `getBestContact`
   // / `getLocationForCompany`, which operated on the (now-removed) static
@@ -170,6 +214,9 @@ export default function CompaniesPage() {
 
   const filtered = useMemo(() => {
     let result = companies.filter(tabDef.filter);
+    if (researchRunCompanyIds !== null) {
+      result = filterCompaniesToResearchRun(result, researchRunCompanyIds);
+    }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
@@ -196,12 +243,12 @@ export default function CompaniesPage() {
       return sortAsc ? cmp : -cmp;
     });
     return result;
-  }, [activeTab, searchQuery, sortKey, sortAsc, tabDef, companies, locationByCompany, contactsByCompany]);
+  }, [activeTab, searchQuery, sortKey, sortAsc, tabDef, companies, locationByCompany, contactsByCompany, researchRunCompanyIds]);
 
   const [page, setPage] = useState(0);
   useEffect(() => {
     setPage(0);
-  }, [activeTab, searchQuery, sortKey, sortAsc]);
+  }, [activeTab, searchQuery, sortKey, sortAsc, researchRunId]);
   const pageRows = useMemo(
     () => filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
     [filtered, page]
@@ -285,14 +332,38 @@ export default function CompaniesPage() {
         </p>
       </div>
 
+      {researchRunId && (
+        <section
+          aria-label="Saved search results"
+          className="surface-card"
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", padding: "12px 16px", marginBottom: "16px" }}
+        >
+          <div aria-live="polite">
+            <strong>{researchRunLocation || "Saved search"}</strong>
+            <span style={{ marginLeft: "8px", color: "var(--color-text-secondary)", fontSize: "12px" }}>
+              {researchRunLoading ? "Loading results…" : `${researchRunCompanyIds?.length ?? 0} saved companies`}
+            </span>
+          </div>
+          <Link href="/companies" style={{ color: "var(--color-accent)", fontSize: "12px", textDecoration: "underline", textUnderlineOffset: "3px" }}>
+            Show all companies
+          </Link>
+        </section>
+      )}
+
+      {researchRunError && (
+        <div style={{ marginBottom: "16px" }}>
+          <PageError message={researchRunError} />
+        </div>
+      )}
+
       {loadError && (
         <div style={{ marginBottom: "16px" }}>
           <PageError message={loadError} />
         </div>
       )}
 
-      {loading ? (
-        <PageLoading label="Loading companies..." />
+      {loading || researchRunLoading ? (
+        <PageLoading label={researchRunLoading ? "Loading saved search results…" : "Loading companies…"} />
       ) : (
       <>
       {/* Tabs */}

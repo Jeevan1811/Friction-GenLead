@@ -1,14 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ExternalLink } from "lucide-react";
 import { Fragment, useState } from "react";
+import { CHAT_KNOWN_SHOTS, parseChatMarkers } from "@/lib/chat-markers.mjs";
 
 /**
  * Renders an assistant reply. Besides plain text it understands two markers
  * the backend validates (services/research/app/services/assistant.py):
  *   [[shot:<id>]]            -> an inline screenshot from /guides/<id>.png
  *   [[open:/path|Label]]     -> a button that opens that page
+ *   [[sheet]]                -> a button to the authenticated user's live workbook
  * Anything else stays text, so a model that misbehaves can't inject links.
  */
 
@@ -24,40 +26,6 @@ const SHOT_CAPTIONS: Record<string, string> = {
   "sheet-sync": "The Synced indicator in the sidebar",
   login: "The sign-in page",
 };
-
-const KNOWN_PATHS = new Set([
-  "/search",
-  "/companies",
-  "/locations",
-  "/contacts",
-  "/searches",
-  "/rejected",
-]);
-
-type Segment =
-  | { type: "text"; text: string }
-  | { type: "shot"; id: string }
-  | { type: "open"; path: string; label: string };
-
-const MARKER = /\[\[(shot|open):([^\]]+)\]\]/g;
-
-function parse(content: string): Segment[] {
-  const out: Segment[] = [];
-  let last = 0;
-  for (const m of content.matchAll(MARKER)) {
-    const start = m.index ?? 0;
-    if (start > last) out.push({ type: "text", text: content.slice(last, start) });
-    if (m[1] === "shot") {
-      out.push({ type: "shot", id: m[2].trim() });
-    } else {
-      const [path, ...rest] = m[2].split("|");
-      out.push({ type: "open", path: path.trim(), label: rest.join("|").trim() || "Open" });
-    }
-    last = start + m[0].length;
-  }
-  if (last < content.length) out.push({ type: "text", text: content.slice(last) });
-  return out.filter((s) => s.type !== "text" || s.text.trim() !== "");
-}
 
 function Bold({ text }: { text: string }) {
   return (
@@ -75,7 +43,7 @@ function Bold({ text }: { text: string }) {
 
 function Shot({ id }: { id: string }) {
   const [failed, setFailed] = useState(false);
-  if (failed || !/^[a-z0-9-]+$/.test(id)) return null;
+  if (failed || !CHAT_KNOWN_SHOTS.has(id)) return null;
   const src = `/guides/${id}.png`;
   return (
     <figure style={{ margin: "8px 0 0" }}>
@@ -100,8 +68,8 @@ function Shot({ id }: { id: string }) {
   );
 }
 
-export function ChatRichText({ content }: { content: string }) {
-  const segments = parse(content);
+export function ChatRichText({ content, sheetUrl }: { content: string; sheetUrl?: string | null }) {
+  const segments = parseChatMarkers(content);
   return (
     <>
       {segments.map((seg, i) => {
@@ -113,7 +81,34 @@ export function ChatRichText({ content }: { content: string }) {
           );
         }
         if (seg.type === "shot") return <Shot key={i} id={seg.id} />;
-        if (!KNOWN_PATHS.has(seg.path)) return null;
+        if (seg.type === "sheet") {
+          if (!sheetUrl) return null;
+          return (
+            <a
+              key={i}
+              href={sheetUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                marginTop: "8px",
+                padding: "6px 12px",
+                fontSize: "12px",
+                fontWeight: 500,
+                textDecoration: "none",
+                borderRadius: "var(--radius-pill)",
+                background: "var(--color-accent-light)",
+                color: "var(--color-accent)",
+                minHeight: 0,
+                minWidth: 0,
+              }}
+            >
+              Open Google Sheet <ExternalLink size={12} />
+            </a>
+          );
+        }
         return (
           <Link
             key={i}

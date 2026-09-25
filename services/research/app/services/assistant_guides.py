@@ -41,7 +41,7 @@ the dashboard share.
 Company -> Location -> Contact: a company can have several locations (plant, \
 mine, office, depot, project), and each location can have contacts.
 
-Pages (left sidebar): Search, Companies, Locations, Contacts, Original data, Follow-ups, Searches, Rejected and Settings.
+Pages (left sidebar): Search, Companies, Locations, Contacts, Original data, Follow-ups, Searches and Rejected. Open Settings from the profile menu at top right.
 Human approval is always required: nothing is approved or rejected \
 automatically -- a person clicks Approve or Reject.
 """
@@ -59,6 +59,7 @@ open and completed follow-ups can be tracked from the Follow-ups page.
 - There is no "Add company" / "Edit" form, no export button and no undo for \
 Reject yet. To add or change details, edit the Google Sheet directly; to get \
 a file, use File > Download in Google Sheets.
+- Assistant answers can look up relevant live rows across Companies, Locations, Contacts, Rejected, Activities, SearchRuns and SourceRecords. The adapter cache lasts up to 5 seconds; this is not a push feed. Example screenshots are instructional samples, not current live records.
 - The Locations map displays saved coordinates; older Australian postcode-only rows can appear at labelled approximate postcode centres, not exact site addresses. Locations elsewhere need saved coordinates to be mapped.
 - The assistant cannot click buttons or change data for the user; it explains \
 and points to the right page.
@@ -89,7 +90,7 @@ GUIDES: tuple[Guide, ...] = (
                   "restart the tour", "tour again", "interactive walkthrough"),
         summary="The dashboard guide walks through the real GenLead screens and explains what is live today.",
         steps=(
-            "Open Settings from the left sidebar or your profile menu at the top right.",
+            "Open Settings from your profile menu at the top right.",
             "Choose 'Start dashboard guide'. Use Back, Next or Skip to move through the screens; Escape also closes the guide.",
             "Search accepts a city, region, country or postcode and saves mapped public-source candidates to the Sheet for human review; call notes and follow-ups are also stored there.",
         ),

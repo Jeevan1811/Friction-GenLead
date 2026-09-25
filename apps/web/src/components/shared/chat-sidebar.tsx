@@ -3,8 +3,9 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { usePathname } from "next/navigation";
 import { MessageCircle, X, Send, Bot, Loader2 } from "lucide-react";
-import { sendChatMessage } from "@/lib/api";
+import { getSyncStatus, sendChatMessage } from "@/lib/api";
 import { ChatRichText } from "@/components/shared/chat-rich-text";
+import { buildGoogleSheetUrl } from "@/lib/google-sheets-link.mjs";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -13,14 +14,13 @@ interface ChatMessage {
 
 const STORAGE_KEY = "genlead-chat-messages";
 const GREETING =
-  "Hi! I'm the GenLead assistant. Ask me how to do anything in the app, what something means, or about your companies, contacts and locations.";
+  "Hi, I'm GenLead. Ask about using the app or your live Sheet data. I can show an example screen or open the right page.\n\n[[sheet]]";
 
 const SUGGESTIONS = [
-  "How do I approve a company?",
-  "How do I find a company?",
-  "What do the statuses mean?",
-  "How does the Google Sheet sync work?",
-  "How many companies are in my data?",
+  "How do I review a company?",
+  "Which follow-ups are due?",
+  "What did my latest search find?",
+  "Where can I find original Excel fields?",
 ];
 
 function loadMessages(): ChatMessage[] {
@@ -47,6 +47,7 @@ export function ChatSidebar() {
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages());
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sheetUrl, setSheetUrl] = useState<string | null | undefined>(undefined);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -60,6 +61,22 @@ export function ChatSidebar() {
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
+
+  /* Resolve a validated link to this account's live Sheet when help is opened. */
+  useEffect(() => {
+    if (!open || sheetUrl !== undefined) return;
+    let current = true;
+    getSyncStatus()
+      .then((status) => {
+        if (current) setSheetUrl(buildGoogleSheetUrl(status.spreadsheetId));
+      })
+      .catch(() => {
+        if (current) setSheetUrl(null);
+      });
+    return () => {
+      current = false;
+    };
+  }, [open, sheetUrl]);
 
   /* Persist */
   useEffect(() => {
@@ -280,7 +297,7 @@ export function ChatSidebar() {
                 }}
               >
                 {msg.role === "assistant" ? (
-                  <ChatRichText content={msg.content} />
+                  <ChatRichText content={msg.content} sheetUrl={sheetUrl} />
                 ) : (
                   msg.content
                 )}

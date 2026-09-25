@@ -22,6 +22,7 @@ from enum import StrEnum
 
 from app.services.abr import ABRAdapter
 from app.services.crawler import WebsiteCrawler, SSRFError, CrawlLimitError
+from app.services.firecrawl_search import FirecrawlSearchDiscovery
 from app.services.geo import postcode_centroid
 from app.services.overture_discovery import OverturePlacesDiscovery
 from app.services.resolver import EntityResolver, normalize_company_name
@@ -105,10 +106,12 @@ class Jev:
         abr: ABRAdapter | None = None,
         crawler: WebsiteCrawler | None = None,
         places: OverturePlacesDiscovery | None = None,
+        web_search: FirecrawlSearchDiscovery | None = None,
     ):
         self.abr = abr or ABRAdapter()
         self.crawler = crawler or WebsiteCrawler()
         self.places = places
+        self.web_search = web_search
         self.resolver = EntityResolver()
         self.sheets = sheets
 
@@ -543,6 +546,7 @@ class Jev:
 
         try:
             raw_results: list[dict] = []
+            web_results: list[dict] = []
             source_errors: list[str] = []
             successful_sources = 0
 
@@ -567,8 +571,22 @@ class Jev:
                 except Exception as exc:
                     source_errors.append(f"Global public-place search failed: {exc}")
 
+            if self.web_search is not None:
+                try:
+                    web_results = await self.web_search.search(location_query, job.industry)
+                    job.warnings.extend(getattr(self.web_search, "last_warnings", []))
+                    if len(web_results) > 10:
+                        job.warnings.append(
+                            "Public web results are limited to 10 candidates per run so mapped and registry sources remain represented."
+                        )
+                    successful_sources += 1
+                except Exception as exc:
+                    logger.warning("Public web search failed: %s", type(exc).__name__)
+                    source_errors.append("Public web search failed; other successful sources were retained.")
+
             if successful_sources == 0:
                 raise RuntimeError("; ".join(source_errors) or "No public discovery source is available.")
+            raw_results = _blend_public_source_candidates(raw_results, web_results)
             job.warnings.extend(source_errors)
             if not raw_results and source_errors:
                 raise RuntimeError("No public discovery source completed successfully: " + "; ".join(source_errors))
@@ -728,6 +746,27 @@ class Jev:
                     candidate["source_quality_flags"] = candidate.get("source_quality_flags") or (
                         "OVERTURE_MAPS_CANDIDATE; INDUSTRY_CATEGORY_MATCH_NOT_VERIFIED; CONTACT_DETAILS_REQUIRE_REVIEW"
                     )
+                elif source == "FIRECRAWL_SEARCH":
+                    candidate["business_phone"] = ""
+                    candidate["business_email"] = ""
+                    candidate["source_verification"] = (
+                        "Public web-search result only. Company identity, requested sector fit, website ownership, "
+                        "and a current operating site are unverified; review before contacting."
+                    )
+                    provenance = candidate.get("source_provenance")
+                    provenance = dict(provenance) if isinstance(provenance, dict) else {}
+                    provenance.update({
+                        "provider_id": provider_id,
+                        "location_query": location_query,
+                        "requested_industry": job.industry or "",
+                        "retrieved_at": provenance.get("retrieved_at") or now,
+                        "record_url": candidate.get("source_url", ""),
+                    })
+                    candidate["source_provenance"] = json.dumps(provenance, ensure_ascii=False, default=str)
+                    candidate["source_quality_flags"] = candidate.get("source_quality_flags") or (
+                        "WEB_SEARCH_CANDIDATE; COMPANY_IDENTITY_UNVERIFIED; INDUSTRY_UNVERIFIED; "
+                        "WEBSITE_OWNERSHIP_UNVERIFIED; OPERATING_SITE_UNVERIFIED"
+                    )
                 else:
                     # Retained for old rows and tests; production discovery now uses Overture.
                     tags = candidate.get("osm_tags") if isinstance(candidate.get("osm_tags"), dict) else {}
@@ -771,6 +810,10 @@ class Jev:
                         job.warnings.append(f"Company {company['company_name']} was found but its Companies-tab write is pending.")
 
                     source = str(company.get("source", "")).upper()
+                    if source == "FIRECRAWL_SEARCH":
+                        # Search-result pages do not contain a verified operating-site location.
+                        # Persist the company candidate, but do not manufacture a map row or coordinates.
+                        continue
                     if source == "ABR":
                         postcode = str(company.get("postcode") or location_query)
                         centroid = postcode_centroid(postcode)
@@ -1129,6 +1172,37 @@ def _provider_ids_from_provenance(value: object) -> set[str]:
         return set()
     provider_id = str(payload.get("provider_id") or "").strip()
     return {provider_id} if provider_id else set()
+
+
+def _blend_public_source_candidates(
+    primary_results: list[dict], web_results: list[dict]
+) -> list[dict]:
+    """Interleave web candidates with mapped results so the 30-row cap is diverse."""
+    if not web_results:
+        return list(primary_results)
+
+    abr_results: list[dict] = []
+    mapped_results: list[dict] = []
+    for candidate in primary_results:
+        if str(candidate.get("source") or "").upper() == "ABR":
+            abr_results.append(candidate)
+        else:
+            mapped_results.append(candidate)
+
+    # Keep a small ABR lead-in for QLD postcodes, but don't let either the
+    # registry or a dense map area consume every slot before web discovery.
+    interleaved = abr_results[:8]
+    web_pool = web_results[:10]
+    web_index = 0
+    for offset in range(0, len(mapped_results), 2):
+        interleaved.extend(mapped_results[offset : offset + 2])
+        if web_index < len(web_pool):
+            interleaved.append(web_pool[web_index])
+            web_index += 1
+
+    interleaved.extend(web_pool[web_index:])
+    interleaved.extend(abr_results[8:])
+    return interleaved
 
 
 def _json_string_list(value: object) -> list[str]:

@@ -15,11 +15,13 @@ import {
   FileSearch,
   PanelLeftClose,
   PanelLeftOpen,
+  FileSpreadsheet,
 } from "lucide-react";
 import { SyncIndicator } from "@/components/shared/sync-indicator";
 import { getJobs, getSyncStatus } from "@/lib/api";
 import type { SyncStatus } from "@/lib/types";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
+import { buildGoogleSheetUrl } from "@/lib/google-sheets-link.mjs";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -128,6 +130,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       count: null as number | null,
     },
   ];
+  const googleSheetUrl = buildGoogleSheetUrl(sync?.spreadsheetId);
 
   return (
     <aside
@@ -300,6 +303,32 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           flexShrink: 0,
         }}
       >
+        {googleSheetUrl && (
+          <a
+            href={googleSheetUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open the live Google Sheet"
+            title={collapsed ? "Open Google Sheet" : undefined}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: collapsed ? "center" : "flex-start",
+              gap: "12px",
+              minHeight: "40px",
+              padding: "8px 12px",
+              marginBottom: "6px",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--color-text-secondary)",
+              fontSize: "13px",
+              textDecoration: "none",
+              whiteSpace: "nowrap",
+            }}
+          >
+            <FileSpreadsheet size={18} aria-hidden="true" />
+            {!collapsed && <span>Google Sheet</span>}
+          </a>
+        )}
         <SyncIndicator
           state={sync?.state ?? "NEVER"}
           lastSync={sync?.lastSync ?? undefined}

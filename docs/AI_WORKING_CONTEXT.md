@@ -2,6 +2,18 @@
 
 Last updated: 2026-09-26 (Asia/Singapore)
 
+## Active release follow-up — web search, guide, and Sheet access
+
+- Active isolated worktree: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-search-guide`.
+- Branch/base: `codex/genlead-search-guide`, based on clean `origin/main` at `056a779` (`Scope company tab counts to saved search results`).
+- Scope: `private-only` MSV GenLead. Add a bounded Firecrawl web-index search alongside deployed Overture/ABR; fix the guide's invalid `/` first step; add a Google Sheet shortcut to desktop sidebar and mobile More menu. Original `genlead-shipfix` checkout and its uncommitted user auth/device-lock work remain untouched.
+- Implementation status: **SOURCE IMPLEMENTED; 135 backend tests PASS; 7 frontend Node tests PASS; web typecheck/build PASS; NOT YET DEPLOYED; authenticated browser QA pending**.
+- Firecrawl limits: at most three keyless searches × five results per uncached user search; six-hour in-process cache; queries contain only the submitted place and sector; no API key/header; directory/social and non-public hosts filtered; API partial failures preserve other sources. Source blending gives a small ABR lead-in, then two mapped candidates per web candidate, capped at 10 web candidates; if web search returns fewer, Overture fills the remaining capacity. Web matches remain unverified, carry provenance/quality flags, and do not create a Locations row or map coordinate. The existing 30-new-company Sheet-write cap and SSRF/robots-checked company-site crawler remain in place.
+- UI: guide begins at `/search` on the existing `search-overview` element, with one Search step. Google Sheet links use `SyncStatus.spreadsheetId`, appear only when valid, and keep a fixed Google Docs host. Mobile More now opens a compact, keyboard-dismissible navigation popover.
+- Verification: `python -m pytest -q` — 135 passed; `node --test tests/*.test.mjs` from `apps/web` — 7 passed; `npm run typecheck --workspace=apps/web` and `npm run build --workspace=apps/web` — passed; `npm ci` — 0 vulnerabilities. Re-run `git diff --check` after final edits.
+- Remaining release evidence: verify the keyless endpoint from the VPS without writing to Sheets; merge/deploy only this branch's search/tour/Sheet changes; check only `frictiongenlead-api` and `frictiongenlead-web`; test the deployed UI in the available browser if a valid session is already present. Do not run another production search or send OTP without explicit need/approval. No `.env`, credentials, device-lock files, OTP, Sheet rows, or other PM2 apps are in scope.
+- Independent review: Claude Code access was previously denied by organization policy. Gemini/Antigravity is not used because the shared routing contract prohibits sending private-client work to that lane.
+
 ## Repository and release state
 
 - Repository: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-shipfix`

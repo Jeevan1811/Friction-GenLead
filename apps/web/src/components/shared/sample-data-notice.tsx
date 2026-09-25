@@ -25,7 +25,7 @@ export function SampleDataNotice() {
         <details style={{ marginTop: "4px" }}>
           <summary style={{ cursor: "pointer", fontSize: "12px" }}>Search limits and sources</summary>
           <p style={{ margin: "4px 0 0", fontSize: "12px" }}>
-            Searches use the latest Overture Maps Places release and may add ABR name matches for Queensland postcodes. Industry categories are clues, not proof. Saved records retain available source and license details; listed sites and contacts remain unverified until reviewed.
+            Search combines Overture Places and public web results; Queensland postcodes may add ABR name matches. Categories are clues, not proof. Review each company, website, and contact before use.
           </p>
         </details>
       </div>

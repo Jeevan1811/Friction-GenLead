@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.services.auth import require_auth
+from app.services.firecrawl_search import FirecrawlSearchDiscovery
 from app.services.jev import Jev
 from app.services.osm_discovery import OpenStreetMapDiscovery
 from app.services.overture_discovery import OverturePlacesDiscovery
@@ -13,9 +14,11 @@ router = APIRouter(
     prefix="/internal/ops", tags=["operations"], dependencies=[Depends(require_auth)]
 )
 
+geocoder = OpenStreetMapDiscovery()
 jev = Jev(
     sheets=sheets_adapter,
-    places=OverturePlacesDiscovery(geocoder=OpenStreetMapDiscovery()),
+    places=OverturePlacesDiscovery(geocoder=geocoder),
+    web_search=FirecrawlSearchDiscovery(geocoder=geocoder),
 )
 
 
@@ -47,7 +50,7 @@ class JobSummary(BaseModel):
 
 @router.post("/research")
 async def start_research(request: StartResearchRequest) -> dict:
-    """Start a bounded global Places search, supplementing QLD postcode queries with ABR."""
+    """Start a bounded global Places and public-web search, supplementing QLD postcodes with ABR."""
     if not jev.sheets or not jev.sheets.is_live:
         raise HTTPException(
             status_code=503,
@@ -66,8 +69,8 @@ async def start_research(request: StartResearchRequest) -> dict:
         "location": job.location_query or job.postcode,
         "status": job.status,
         "message": (
-            "Search started using the latest global Overture Maps Places release and, for QLD postcodes, "
-            "ABR name matches. Coverage is non-exhaustive; review company identity, industry, operation, and contacts."
+            "Search started using Overture Places and public web search, with ABR name matches for QLD postcodes. "
+            "Coverage is non-exhaustive; review company identity, industry, operation, website, and contacts."
         ),
     }
 

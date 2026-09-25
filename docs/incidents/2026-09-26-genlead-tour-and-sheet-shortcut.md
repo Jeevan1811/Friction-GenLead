@@ -1,0 +1,10 @@
+# Incident: guide flicker and missing Google Sheet shortcut
+
+- **Surface / symptom:** Starting the dashboard guide from Settings caused the page to flicker; dashboard navigation had no direct Google Sheet shortcut on desktop or mobile.
+- **Impact:** MSV could not comfortably complete the walkthrough and needed to leave the dashboard to open the live workbook. No spreadsheet data was lost or modified.
+- **Evidence:** Source inspection shows the first tour step targeted `/` and `[data-tour="dashboard-overview"]`, while `apps/web/src/app/page.tsx` redirects `/` to `/search`. The tour effect pushes the step route whenever it differs from `usePathname()`, causing a repeated redirect/push cycle. `SyncStatus.spreadsheetId` was available in the sidebar but not used to build a sheet link; mobile More linked straight to Rejected.
+- **Root cause:** Confirmed invalid tour start route/target; shortcut UI was omitted.
+- **Recovery in source:** Start the walkthrough at `/search` on `[data-tour="search-overview"]` and remove its duplicate step. Add a fixed-host Google Sheets URL helper based on the configured spreadsheet ID, a desktop sidebar footer link, and a mobile More popover with a Sheet link when available. Preserve the five-slot bottom navigation.
+- **Prevention:** `apps/web/tests/dashboard-tour-routing.test.mjs` verifies the first route/target and only one Search step. `apps/web/tests/google-sheets-link.test.mjs` verifies a valid ID creates a docs.google.com URL and absent/malformed IDs create no link. Release QA must confirm the tour remains on Search without route churn and the link opens the configured Sheet on desktop and mobile.
+- **Source verification:** 7 frontend Node tests, TypeScript typecheck, and optimized production build pass. The fixes are not yet deployed; live/browser closure is pending.
+- **Rollback:** Revert the scoped UI files only and redeploy only the Friction GenLead web process; no auth, source data, Sheets, or other VPS application changes are needed.

@@ -21,19 +21,10 @@ type DashboardTourStep = {
 
 export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
   {
-    path: "/",
-    target: '[data-tour="dashboard-overview"]',
-    title: "Your prospect pipeline",
-    description:
-      "These totals come from the records loaded into GenLead. Quick Actions take you to the main review and search tasks.",
-    side: "bottom",
-  },
-  {
     path: "/search",
     target: '[data-tour="search-overview"]',
-    title: "Search anywhere by place",
-    description:
-      "Search by place and sector. Coverage varies; review each candidate before contacting it.",
+    title: "Find prospects",
+    description: "Enter a place and sector. Review candidates before contacting them.",
     side: "bottom",
   },
   {

@@ -58,7 +58,9 @@ def test_research_route_starts_without_returning_demo_claims(monkeypatch):
 
     assert search.status_code == 200
     assert search.json()["job_id"] == "job-public-scrape"
-    assert "Overture Maps Places release" in search.json()["message"]
+    assert "Overture Places" in search.json()["message"]
+    assert "public web search" in search.json()["message"]
+    assert "ABR name matches" in search.json()["message"]
     assert discover.status_code == 503
     assert contacts.status_code == 503
     assert "No sample" in discover.json()["detail"]

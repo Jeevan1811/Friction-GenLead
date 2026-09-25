@@ -166,7 +166,7 @@ export default function SearchPage() {
             marginTop: "4px",
           }}
         >
-          Find nearby company candidates.
+          Find company candidates by place and sector.
         </p>
       </div>
 
@@ -521,6 +521,8 @@ export default function SearchPage() {
                 }
                 const sourceName = sourceProvider.toLowerCase().includes("overture") || sourceProvider.toLowerCase() === "overture_maps"
                   ? "Overture Maps candidate"
+                  : sourceProvider.toLowerCase().includes("firecrawl") || sourceProvider.toLowerCase() === "firecrawl_search"
+                    ? "Web-search candidate"
                   : sourceProvider.toLowerCase().includes("openstreetmap")
                     ? "OpenStreetMap candidate"
                   : sourceProvider.toLowerCase().includes("abn") || sourceProvider.toLowerCase().includes("abr")

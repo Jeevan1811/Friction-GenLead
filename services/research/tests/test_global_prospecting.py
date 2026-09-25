@@ -24,6 +24,221 @@ def test_research_request_accepts_a_worldwide_location():
     assert request.roles == ["Operations Manager"]
 
 
+def test_production_research_pipeline_wires_web_search_alongside_overture():
+    assert operations.jev.places is not None
+    assert operations.jev.web_search is not None
+
+
+def test_web_search_candidates_are_saved_without_fabricated_site_locations():
+    candidate = {
+        "provider_id": "firecrawl:northstar-mining.com.au",
+        "name": "Northstar Mining Services",
+        "source": "FIRECRAWL_SEARCH",
+        "website": "https://northstar-mining.com.au/about",
+        "source_url": "https://northstar-mining.com.au/about",
+        "country": "Australia",
+        "country_code": "au",
+        "state": "Queensland",
+        "source_provenance": {
+            "provider": "Firecrawl web search",
+            "provider_id": "firecrawl:northstar-mining.com.au",
+            "result_title": "Northstar Mining Services | Gladstone",
+            "description": "Industrial contractor",
+            "query": "Heavy Industry companies in Gladstone, Queensland",
+        },
+        "source_quality_flags": (
+            "WEB_SEARCH_CANDIDATE; COMPANY_IDENTITY_UNVERIFIED; INDUSTRY_UNVERIFIED; "
+            "WEBSITE_OWNERSHIP_UNVERIFIED; OPERATING_SITE_UNVERIFIED"
+        ),
+    }
+
+    class PublicPlaces:
+        last_warnings: list[str] = []
+
+        async def search(self, _location: str, _industry: str | None = None):
+            return []
+
+    class PublicWebSearch:
+        last_warnings: list[str] = ["Web results are unverified candidates; review before use."]
+
+        async def search(self, location: str, industry: str | None = None):
+            assert location == "Gladstone, Queensland, Australia"
+            assert industry == "Heavy Industry"
+            return [candidate]
+
+    class LiveSheets:
+        is_live = True
+
+        def __init__(self):
+            self.companies: list[dict] = []
+            self.locations: list[dict] = []
+
+        async def read_companies(self):
+            return []
+
+        async def read_rejected(self):
+            return []
+
+        def tab_read_error(self, _tab: str):
+            return None
+
+        async def upsert_company(self, row):
+            self.companies.append(row)
+            return SyncState.SYNCED
+
+        async def upsert_location(self, row):
+            self.locations.append(row)
+            return SyncState.SYNCED
+
+    sheets = LiveSheets()
+    job = ResearchJob(
+        job_id="web-search-candidate-test",
+        postcode="",
+        location_query="Gladstone, Queensland, Australia",
+        industry="Heavy Industry",
+        target_roles=[],
+        steps=[PipelineStep(name=name) for name in ("discover", "verify", "research_contacts", "evaluate")],
+    )
+
+    asyncio.run(Jev(sheets=sheets, places=PublicPlaces(), web_search=PublicWebSearch())._step_discover_public_sources(job))
+
+    assert job.steps[0].status.value == "completed"
+    assert len(job.companies_found) == 1
+    assert len(sheets.companies) == 1
+    assert sheets.companies[0]["source"] == "FIRECRAWL_SEARCH"
+    assert "Firecrawl web search" in sheets.companies[0]["source_provenance"]
+    assert "COMPANY_IDENTITY_UNVERIFIED" in sheets.companies[0]["source_quality_flags"]
+    assert sheets.locations == []
+
+
+def test_web_search_failure_does_not_discard_overture_candidates():
+    candidate = {
+        "provider_id": "overture:place-123",
+        "name": "Northstar Industrial",
+        "source": "OVERTURE_MAPS",
+        "source_provenance": {"provider": "Overture Maps Places"},
+    }
+
+    class PublicPlaces:
+        last_warnings: list[str] = []
+
+        async def search(self, _location: str, _industry: str | None = None):
+            return [candidate]
+
+    class FailedWebSearch:
+        last_warnings: list[str] = []
+
+        async def search(self, _location: str, _industry: str | None = None):
+            raise RuntimeError("web source unavailable")
+
+    class LiveSheets:
+        is_live = True
+
+        async def read_companies(self):
+            return []
+
+        async def read_rejected(self):
+            return []
+
+        def tab_read_error(self, _tab: str):
+            return None
+
+        async def upsert_company(self, _row):
+            return SyncState.SYNCED
+
+        async def upsert_location(self, _row):
+            return SyncState.SYNCED
+
+    job = ResearchJob(
+        job_id="web-search-failure-preserves-map-test",
+        postcode="",
+        location_query="Toronto, Ontario, Canada",
+        industry="Mining",
+        target_roles=[],
+        steps=[PipelineStep(name="discover")],
+    )
+
+    asyncio.run(Jev(sheets=LiveSheets(), places=PublicPlaces(), web_search=FailedWebSearch())._step_discover_public_sources(job))
+
+    assert job.steps[0].status.value == "completed"
+    assert [row["company_name"] for row in job.companies_found] == ["Northstar Industrial"]
+    assert any("web search" in warning.casefold() for warning in job.warnings)
+
+
+def test_dense_overture_results_do_not_starve_web_results_under_the_30_company_cap():
+    place_candidates = [
+        {
+            "provider_id": f"overture:place-{index}",
+            "name": f"Mapped Industrial Company {index}",
+            "source": "OVERTURE_MAPS",
+            "source_provenance": {"provider": "Overture Maps Places"},
+        }
+        for index in range(40)
+    ]
+    web_candidates = [
+        {
+            "provider_id": f"firecrawl:web-{index}.com",
+            "name": f"Web Industrial Company {index}",
+            "source": "FIRECRAWL_SEARCH",
+            "website": f"https://web-{index}.com/",
+            "source_url": f"https://web-{index}.com/",
+            "source_provenance": {"provider": "Firecrawl web search"},
+        }
+        for index in range(15)
+    ]
+
+    class PublicPlaces:
+        last_warnings: list[str] = []
+
+        async def search(self, _location: str, _industry: str | None = None):
+            return place_candidates
+
+    class PublicWebSearch:
+        last_warnings: list[str] = []
+
+        async def search(self, _location: str, _industry: str | None = None):
+            return web_candidates
+
+    class LiveSheets:
+        is_live = True
+
+        def __init__(self):
+            self.companies: list[dict] = []
+
+        async def read_companies(self):
+            return []
+
+        async def read_rejected(self):
+            return []
+
+        def tab_read_error(self, _tab: str):
+            return None
+
+        async def upsert_company(self, row):
+            self.companies.append(row)
+            return SyncState.SYNCED
+
+        async def upsert_location(self, _row):
+            return SyncState.SYNCED
+
+    sheets = LiveSheets()
+    job = ResearchJob(
+        job_id="source-diversity-limit-test",
+        postcode="",
+        location_query="Gladstone, Queensland, Australia",
+        industry="Heavy Industry",
+        target_roles=[],
+        steps=[PipelineStep(name="discover")],
+    )
+
+    asyncio.run(Jev(sheets=sheets, places=PublicPlaces(), web_search=PublicWebSearch())._step_discover_public_sources(job))
+
+    assert job.steps[0].status.value == "completed"
+    assert len(job.companies_found) == 30
+    assert sum(row["source"] == "FIRECRAWL_SEARCH" for row in job.companies_found) == 10
+    assert any("limited to 10" in warning for warning in job.warnings)
+
+
 def test_research_results_endpoint_returns_candidate_rows_for_the_ui(monkeypatch):
     job = ResearchJob(
         job_id="result-shape-test",

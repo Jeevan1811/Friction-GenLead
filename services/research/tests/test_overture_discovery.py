@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 
 from app.services.overture_discovery import (
     MAX_RESULTS,
     OverturePlacesDiscovery,
     PublicSourceError,
+    _query_overture,
 )
 
 
@@ -147,3 +149,37 @@ def test_unrecognized_industry_fails_closed_without_broadening_to_all_places():
     assert rows == []
     assert not calls
     assert discovery.last_warnings
+
+
+def test_duckdb_connection_uses_supported_resource_options(monkeypatch):
+    observed: dict = {}
+
+    class FakeConnection:
+        description: list = []
+
+        def execute(self, _query, _parameters=None):
+            return self
+
+        def fetchall(self):
+            return []
+
+        def close(self):
+            pass
+
+    def fake_connect(*, database, config):
+        observed["database"] = database
+        observed["config"] = config
+        return FakeConnection()
+
+    monkeypatch.setitem(sys.modules, "duckdb", type("DuckDB", (), {"connect": staticmethod(fake_connect)})())
+
+    rows = _query_overture(
+        "2026-09-23.0",
+        (151.2, -23.9, 151.3, -23.8),
+        ("b2b_mining",),
+        10,
+    )
+
+    assert rows == []
+    assert observed["database"] == ":memory:"
+    assert observed["config"] == {"threads": "2", "memory_limit": "768MB"}

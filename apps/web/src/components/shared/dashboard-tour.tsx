@@ -23,7 +23,7 @@ export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
   {
     path: "/",
     target: '[data-tour="dashboard-overview"]',
-    title: "Your QLD pipeline",
+    title: "Your prospect pipeline",
     description:
       "These totals come from the records loaded into GenLead. Quick Actions take you to the main review and search tasks.",
     side: "bottom",
@@ -31,9 +31,9 @@ export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
   {
     path: "/search",
     target: '[data-tour="search-overview"]',
-    title: "Search by postcode",
+    title: "Search anywhere by place",
     description:
-      "New searches are disabled until live company and contact sources are connected. GenLead will not show demonstration prospects as real leads.",
+      "Enter a city, region, country or postcode. Public map records and QLD ABR name matches can uncover candidates; coverage is not exhaustive, and sector, company status and contacts still need evidence and your review.",
     side: "bottom",
   },
   {
@@ -49,7 +49,7 @@ export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
     target: '[data-tour="locations-overview"]',
     title: "Check business sites",
     description:
-      "Locations are the company’s sites—such as an office, depot, mine or plant. The imported records are present, but map coordinates are not populated yet.",
+      "Locations are the company’s sites—such as an office, depot, mine or plant. The map uses exact saved coordinates when available; legacy Australian postcode-only records are shown at an approximate postcode centre.",
     side: "bottom",
   },
   {
@@ -57,7 +57,7 @@ export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
     target: '[data-tour="contacts-overview"]',
     title: "Find the right person",
     description:
-      "These are contacts preserved from the supplied workbook. GenLead’s external contact-finder is not connected, so it does not discover new people yet.",
+      "Contacts from the workbook remain available. If a company has a website URL, public pages can be checked for explicitly named people and roles; every match stays unverified until reviewed.",
     side: "bottom",
   },
   {
@@ -81,7 +81,7 @@ export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
     target: '[data-tour="searches-overview"]',
     title: "Search history",
     description:
-      "Run summaries are stored in the Google Sheet and survive service restarts. Full prospect results are not saved because live prospect research is not connected yet.",
+      "Search summaries and successfully saved candidate details are stored in the Google Sheet. Older history entries may contain summary counts only.",
     side: "bottom",
   },
   {

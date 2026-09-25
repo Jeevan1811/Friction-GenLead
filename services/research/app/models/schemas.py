@@ -229,12 +229,15 @@ class VerifyContactResponse(BaseModel):
 class ContactResearchRequest(BaseModel):
     company_id: UUID
     roles: list[str] = Field(default_factory=list)
+    website_url: str | None = Field(default=None, max_length=2048)
 
 
 class ContactResearchResponse(BaseModel):
     company_id: UUID
     contacts_found: int
     contacts: list[Contact]
+    warnings: list[str] = Field(default_factory=list)
+    records_synced: bool = False
 
 
 # ---------------------------------------------------------------------------

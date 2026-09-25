@@ -1,290 +1,180 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MapPin } from "lucide-react";
+import type { Map as LeafletMap, LayerGroup as LeafletLayerGroup } from "leaflet";
 import type { Location } from "@/lib/types";
-// Cesium touches `window`/`document` at module load time, so it must never be
-// statically imported (that would break server-side rendering in Next.js).
-// The CSS import is safe statically — stylesheets have no window/document dependency.
-import "cesium/Build/Cesium/Widgets/widgets.css";
-
-// Minimal shape of the Cesium module we use, so we don't have to `any` every
-// call site while still avoiding a static `import type` that could pull in
-// the runtime module during SSR type-checking in some bundler configs.
-type CesiumModule = typeof import("cesium");
-type CesiumViewer = import("cesium").Viewer;
-type CesiumEntity = import("cesium").Entity;
 
 interface GlobeViewProps {
   locations: Location[];
-  onSelectLocation?: (locationId: string) => void;
 }
 
-const QLD_ACCENT = "#C8372D";
+type LeafletModule = typeof import("leaflet");
 
-/** The exact placeholder markup previously shown on the Locations page,
- * reused as a fallback whenever the globe cannot initialize (e.g. WebGL
- * unavailable) so the page degrades gracefully instead of crashing. */
-function MapPlaceholder({ message }: { message: string }) {
-  return (
-    <div
-      className="surface-card"
-      style={{
-        padding: "48px 24px",
-        textAlign: "center",
-        marginBottom: "24px",
-        background: "var(--color-bg)",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: "12px",
-      }}
-    >
-      <MapPin size={32} style={{ color: "var(--color-text-muted)" }} />
-      <p style={{ fontSize: "13px", color: "var(--color-text-muted)" }}>{message}</p>
-    </div>
-  );
+const DEFAULT_CENTER: [number, number] = [15, 0];
+const DEFAULT_ZOOM = 2;
+
+function PopupContent({ rows }: { rows: Location[] }): HTMLElement {
+  const root = document.createElement("div");
+  root.className = "genlead-map-popup";
+
+  for (const row of rows.slice(0, 8)) {
+    const item = document.createElement("div");
+    item.className = "genlead-map-popup-item";
+    const name = document.createElement("strong");
+    name.textContent = row.siteName || "Saved business location";
+    item.appendChild(name);
+
+    const detail = [row.suburb, row.state, row.postcode, row.country]
+      .filter(Boolean)
+      .join(", ");
+    if (detail) {
+      const address = document.createElement("div");
+      address.textContent = detail;
+      item.appendChild(address);
+    }
+    if (row.coordinateSource === "POSTCODE_CENTROID") {
+      const accuracy = document.createElement("small");
+      accuracy.textContent = "Approximate postcode centre";
+      item.appendChild(accuracy);
+    }
+    root.appendChild(item);
+  }
+
+  if (rows.length > 8) {
+    const more = document.createElement("small");
+    more.textContent = `and ${rows.length - 8} more locations at this point`;
+    root.appendChild(more);
+  }
+  return root;
 }
 
-export function GlobeView({ locations, onSelectLocation }: GlobeViewProps) {
+export function GlobeView({ locations }: GlobeViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const viewerRef = useRef<CesiumViewer | null>(null);
-  const cesiumRef = useRef<CesiumModule | null>(null);
-  const handlerRef = useRef<import("cesium").ScreenSpaceEventHandler | null>(null);
-  const onSelectLocationRef = useRef(onSelectLocation);
-  onSelectLocationRef.current = onSelectLocation;
-
+  const mapRef = useRef<LeafletMap | null>(null);
+  const leafletRef = useRef<LeafletModule | null>(null);
+  const markersRef = useRef<LeafletLayerGroup | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
-  // Initialize the viewer once on mount.
+  const mappableLocations = useMemo(
+    () => locations.filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lng)),
+    [locations],
+  );
+
   useEffect(() => {
     let cancelled = false;
+    let resizeObserver: ResizeObserver | undefined;
 
-    async function init() {
+    async function initializeMap() {
       if (!containerRef.current) return;
-
       try {
-        window.CESIUM_BASE_URL = "/cesium/";
-        const Cesium = await import("cesium");
+        const leaflet = await import("leaflet");
         if (cancelled || !containerRef.current) return;
-        cesiumRef.current = Cesium;
+        leafletRef.current = leaflet;
 
-        const viewer = new Cesium.Viewer(containerRef.current, {
-          timeline: false,
-          animation: false,
-          baseLayerPicker: false,
-          geocoder: false,
-          homeButton: false,
-          sceneModePicker: false,
-          navigationHelpButton: false,
-          fullscreenButton: false,
-          vrButton: false,
-          selectionIndicator: false,
-          infoBox: false,
-          baseLayer: false,
-          msaaSamples: 4,
-          contextOptions: { webgl: { preserveDrawingBuffer: true } },
+        const map = leaflet.map(containerRef.current, {
+          center: DEFAULT_CENTER,
+          zoom: DEFAULT_ZOOM,
+          minZoom: 2,
+          worldCopyJump: true,
+          scrollWheelZoom: true,
         });
-        viewer.targetFrameRate = 60;
-        viewer.scene.globe.show = false;
-        if (viewer.scene.skyAtmosphere) {
-          viewer.scene.skyAtmosphere.show = true;
-        }
-
-        if (cancelled) {
-          viewer.destroy();
-          return;
-        }
-        viewerRef.current = viewer;
-
-        // Route 1 -> Route 2 -> Route 3 fallback chain for photorealistic tiles.
-        await loadBestAvailableImagery(Cesium, viewer);
-        if (cancelled) return;
-
-        // Click-to-select wiring.
-        const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-        handler.setInputAction((movement: { position: import("cesium").Cartesian2 }) => {
-          const picked = viewer.scene.pick(movement.position);
-          if (picked && picked.id) {
-            const entity = picked.id as CesiumEntity;
-            const locationId = typeof entity.id === "string" ? entity.id : undefined;
-            if (locationId && onSelectLocationRef.current) {
-              onSelectLocationRef.current(locationId);
-            }
-          }
-        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-        handlerRef.current = handler;
-
+        leaflet.tileLayer(
+          process.env.NEXT_PUBLIC_MAP_TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+          {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>',
+          },
+        ).addTo(map);
+        markersRef.current = leaflet.layerGroup().addTo(map);
+        mapRef.current = map;
+        resizeObserver = new ResizeObserver(() => map.invalidateSize());
+        resizeObserver.observe(containerRef.current);
         setStatus("ready");
-      } catch (err) {
-        console.warn("[GlobeView] Failed to initialize Cesium viewer:", err);
+      } catch (error) {
+        console.error("[LocationMap] Failed to initialize map:", error);
         if (!cancelled) setStatus("error");
       }
     }
 
-    init();
-
+    void initializeMap();
     return () => {
       cancelled = true;
-      if (handlerRef.current) {
-        handlerRef.current.destroy();
-        handlerRef.current = null;
-      }
-      if (viewerRef.current) {
-        try {
-          viewerRef.current.destroy();
-        } catch {
-          // Viewer may already be partially torn down; ignore.
-        }
-        viewerRef.current = null;
-      }
-      cesiumRef.current = null;
+      resizeObserver?.disconnect();
+      mapRef.current?.remove();
+      mapRef.current = null;
+      markersRef.current = null;
+      leafletRef.current = null;
     };
-    // Intentionally run once on mount; entity updates are handled by the
-    // effect below, keyed on `locations`, so we don't recreate the Viewer.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Diff/update entities whenever the (already-filtered) locations prop changes.
   useEffect(() => {
-    const Cesium = cesiumRef.current;
-    const viewer = viewerRef.current;
-    if (status !== "ready" || !Cesium || !viewer) return;
+    const map = mapRef.current;
+    const leaflet = leafletRef.current;
+    const layer = markersRef.current;
+    if (status !== "ready" || !map || !leaflet || !layer) return;
 
-    try {
-      viewer.entities.removeAll();
-
-      let plotted = 0;
-      for (const loc of locations) {
-        if (loc.lat == null || loc.lng == null) continue;
-        viewer.entities.add({
-          id: loc.locationId,
-          position: Cesium.Cartesian3.fromDegrees(loc.lng, loc.lat),
-          point: {
-            pixelSize: 10,
-            color: Cesium.Color.fromCssColorString(QLD_ACCENT),
-            outlineColor: Cesium.Color.WHITE,
-            outlineWidth: 2,
-          },
-          label: {
-            text: loc.siteName,
-            font: "12px sans-serif",
-            fillColor: Cesium.Color.WHITE,
-            showBackground: true,
-            backgroundColor: Cesium.Color.fromCssColorString("#1A1A1A").withAlpha(0.75),
-            backgroundPadding: new Cesium.Cartesian2(6, 4),
-            pixelOffset: new Cesium.Cartesian2(0, -18),
-            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          },
-        });
-        plotted += 1;
-      }
-
-      if (plotted > 0) {
-        viewer.zoomTo(viewer.entities);
-      } else {
-        viewer.camera.flyTo({
-          destination: Cesium.Cartesian3.fromDegrees(146, -22, 1500000),
-        });
-      }
-    } catch (err) {
-      console.warn("[GlobeView] Failed to update entities:", err);
+    layer.clearLayers();
+    const groups = new Map<string, Location[]>();
+    for (const row of mappableLocations) {
+      const key = `${row.lat},${row.lng}`;
+      const current = groups.get(key) ?? [];
+      current.push(row);
+      groups.set(key, current);
     }
-  }, [locations, status]);
 
-  if (status === "error") {
-    return <MapPlaceholder message="Map view unavailable" />;
-  }
+    const points: [number, number][] = [];
+    for (const rows of groups.values()) {
+      const first = rows[0];
+      const lat = Number(first.lat);
+      const lng = Number(first.lng);
+      points.push([lat, lng]);
+      const marker = leaflet.circleMarker([lat, lng], {
+        radius: rows.length > 1 ? 9 : 7,
+        color: "#FFFFFF",
+        weight: 2,
+        fillColor: "#C8372D",
+        fillOpacity: 0.95,
+      });
+      marker.bindPopup(PopupContent({ rows }));
+      if (rows.length > 1) marker.bindTooltip(String(rows.length), { permanent: true, direction: "center", className: "genlead-map-count" });
+      marker.addTo(layer);
+    }
+
+    if (points.length === 1) {
+      map.setView(points[0], 13);
+    } else if (points.length > 1) {
+      map.fitBounds(leaflet.latLngBounds(points), { padding: [28, 28], maxZoom: 13 });
+    } else {
+      map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+    }
+  }, [mappableLocations, status]);
 
   return (
-    <div
-      className="surface-card"
-      style={{
-        position: "relative",
-        height: 420,
-        marginBottom: "24px",
-        overflow: "hidden",
-      }}
-    >
-      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
-      {status === "loading" && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "12px",
-            background: "var(--color-bg)",
-          }}
-        >
-          <MapPin size={32} style={{ color: "var(--color-text-muted)" }} />
-          <p style={{ fontSize: "13px", color: "var(--color-text-muted)" }}>
-            Loading globe view...
-          </p>
-        </div>
-      )}
-    </div>
+    <>
+      <div className="surface-card genlead-map-card" aria-label="Saved business locations map">
+        <div ref={containerRef} className="genlead-map-canvas" />
+        {status === "loading" && (
+          <div className="genlead-map-overlay">
+            <MapPin size={28} />
+            <span>Loading map…</span>
+          </div>
+        )}
+        {status === "error" && (
+          <div className="genlead-map-overlay" role="status">
+            <MapPin size={28} />
+            <span>Map could not load. Check your connection and reload the page.</span>
+          </div>
+        )}
+        {status === "ready" && mappableLocations.length === 0 && (
+          <div className="genlead-map-empty" role="status">
+            No saved locations have coordinates yet. New mapped prospects appear here; Australian postcode-only records use approximate postcode centres.
+          </div>
+        )}
+      </div>
+      <p className="genlead-map-credit">
+        Map data © OpenStreetMap contributors · <a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noreferrer">Report a map issue</a>
+      </p>
+    </>
   );
-}
-
-/**
- * Route 1: direct Google Maps Platform key.
- * Route 2: Cesium ion token hosting Google's photorealistic tileset (ion asset 2275207).
- * Route 3: keyless fallback — OpenStreetMap imagery on the default globe.
- * Each route is wrapped so a failure falls through to the next, and route 3
- * never throws, matching the app's "never fail open" degrade-gracefully rule.
- */
-async function loadBestAvailableImagery(Cesium: CesiumModule, viewer: CesiumViewer) {
-  const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
-  const cesiumIonToken = process.env.NEXT_PUBLIC_CESIUM_ION_TOKEN;
-
-  if (googleApiKey) {
-    try {
-      const tileset = await Cesium.createGooglePhotorealistic3DTileset({
-        key: googleApiKey,
-        onlyUsingWithGoogleGeocoder: true,
-      });
-      viewer.scene.primitives.add(tileset);
-      viewer.scene.globe.show = false;
-      return;
-    } catch (err) {
-      console.warn("[GlobeView] Google Photorealistic 3D Tiles (direct key) failed:", err);
-    }
-  }
-
-  if (cesiumIonToken) {
-    try {
-      Cesium.Ion.defaultAccessToken = cesiumIonToken;
-      const resource = await Cesium.IonResource.fromAssetId(2275207, {
-        accessToken: cesiumIonToken,
-      });
-      const tileset = await Cesium.Cesium3DTileset.fromUrl(resource, {
-        cacheBytes: 1536 * 1024 * 1024,
-        maximumCacheOverflowBytes: 1024 * 1024 * 1024,
-        enableCollision: true,
-      });
-      viewer.scene.primitives.add(tileset);
-      viewer.scene.globe.show = false;
-      return;
-    } catch (err) {
-      console.warn("[GlobeView] Cesium ion photorealistic tileset failed:", err);
-    }
-  }
-
-  // Route 3: keyless OSM globe. Never throws.
-  try {
-    viewer.scene.globe.show = true;
-    viewer.imageryLayers.addImageryProvider(
-      new Cesium.OpenStreetMapImageryProvider({ url: "https://a.tile.openstreetmap.org/" })
-    );
-  } catch (err) {
-    console.warn("[GlobeView] Keyless OSM imagery failed to load:", err);
-    // Leave the globe visible with no imagery layer rather than throwing —
-    // pins and camera controls still work.
-    viewer.scene.globe.show = true;
-  }
 }

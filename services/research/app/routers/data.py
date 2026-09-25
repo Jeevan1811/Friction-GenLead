@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..services.auth import require_auth
+from ..services.geo import location_map_coordinates
 from ..models.enums import SyncState
 from ..services.sheets_instance import sheets_adapter
 
@@ -158,7 +159,7 @@ async def get_locations() -> list[dict[str, Any]]:
 
     Matches the frontend's ``Location`` interface field-for-field.
     """
-    rows = await sheets_adapter.read_locations()
+    rows = [location_map_coordinates(row) for row in await sheets_adapter.read_locations()]
     return _rows_to_camel_case(rows)
 
 

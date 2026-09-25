@@ -166,6 +166,7 @@ class GoogleSheetsAdapter:
     _sync_log: list[SyncLogEntry] = field(default_factory=list)
     # tab_key -> (monotonic timestamp, rows); see _read_tab.
     _tab_cache: dict[str, tuple[float, list[dict[str, Any]]]] = field(default_factory=dict)
+    _tab_read_errors: dict[str, str] = field(default_factory=dict)
 
     # Column configs (class-level constants for quick access).
     COMPANY_COLUMNS: list[str] = field(
@@ -187,6 +188,11 @@ class GoogleSheetsAdapter:
     # ------------------------------------------------------------------
     # Connection
     # ------------------------------------------------------------------
+
+    @property
+    def is_live(self) -> bool:
+        """Whether writes go to an authenticated Google Sheet, not mock memory."""
+        return self._connected and not self._mock_mode
 
     async def connect(
         self,
@@ -671,6 +677,10 @@ class GoogleSheetsAdapter:
         else:
             self._tab_cache.pop(tab_key, None)
 
+    def tab_read_error(self, tab_key: str) -> str | None:
+        """Return the last live read failure for a tab, if any."""
+        return self._tab_read_errors.get(tab_key)
+
     async def _read_tab_headers(self, tab_key: str) -> list[str]:
         tab_name = SPREADSHEET_TABS[tab_key]["name"]
         result = self._service.spreadsheets().values().get(
@@ -710,6 +720,7 @@ class GoogleSheetsAdapter:
             rows = result.get("values", [])
             if len(rows) <= 1:
                 self._tab_cache[tab_key] = (time.monotonic(), [])
+                self._tab_read_errors.pop(tab_key, None)
                 return []  # Only header row or empty.
 
             # Read by the live header row rather than code-defined position.
@@ -724,9 +735,11 @@ class GoogleSheetsAdapter:
                         record[col] = row[i] if i < len(row) else None
                 records.append(record)
             self._tab_cache[tab_key] = (time.monotonic(), records)
+            self._tab_read_errors.pop(tab_key, None)
             return records
 
-        except Exception:
+        except Exception as exc:
+            self._tab_read_errors[tab_key] = str(exc)[:500]
             logger.exception("Failed to read tab %s", tab_name)
             return []
 

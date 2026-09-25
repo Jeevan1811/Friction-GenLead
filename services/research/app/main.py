@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Friction GenLead Research API",
-    description="Queensland business prospecting research service",
+    description="Location-based public-source business prospecting research service",
     version="0.1.0",
     lifespan=lifespan,
 )

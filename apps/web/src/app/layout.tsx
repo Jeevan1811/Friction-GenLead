@@ -10,7 +10,7 @@ const geist = Geist({
 
 export const metadata: Metadata = {
   title: "Friction GenLead",
-  description: "Queensland business prospecting system",
+  description: "Location-based public-source business prospecting",
 };
 
 export default function RootLayout({

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useCallback, type CSSProperties } from "react";
-import { Search, ChevronDown, ChevronUp, ArrowUpDown, Loader2 } from "lucide-react";
+import { Search, ChevronDown, ChevronUp, ArrowUpDown, Loader2, Users } from "lucide-react";
 import type { Company, Contact, Location } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DetailDrawer } from "@/components/shared/detail-drawer";
@@ -11,6 +11,7 @@ import {
   verifyCompany,
   verifyLocation,
   verifyContact,
+  researchCompanyContacts,
   getCompanies,
   getLocations,
   getContacts,
@@ -84,6 +85,10 @@ export default function CompaniesPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [contactResearchLoading, setContactResearchLoading] = useState(false);
+  const [websiteResearchUrl, setWebsiteResearchUrl] = useState("");
+  const [contactResearchStatus, setContactResearchStatus] = useState("");
+  const [contactResearchWarnings, setContactResearchWarnings] = useState<string[]>([]);
   // Per-card loading, keyed "loc:<id>" / "ct:<id>", for the direct-approve
   // buttons on individual location/contact cards (no dialog involved, so
   // each card's own in-flight action shouldn't disable its siblings).
@@ -172,6 +177,8 @@ export default function CompaniesPage() {
           c.companyName.toLowerCase().includes(q) ||
           c.normalizedName.includes(q) ||
           (c.tradingName && c.tradingName.toLowerCase().includes(q)) ||
+          (c.businessEmail && c.businessEmail.toLowerCase().includes(q)) ||
+          (c.businessPhone && c.businessPhone.toLowerCase().includes(q)) ||
           (c.businessLandlines && c.businessLandlines.toLowerCase().includes(q)) ||
           (c.sourceVerification && c.sourceVerification.toLowerCase().includes(q)) ||
           (c.legacySourceText && c.legacySourceText.toLowerCase().includes(q))
@@ -226,6 +233,46 @@ export default function CompaniesPage() {
   const selectedContacts = selectedCompanyId
     ? contactsState.filter((c) => c.companyId === selectedCompanyId)
     : [];
+
+  useEffect(() => {
+    setWebsiteResearchUrl(selectedCompany?.website ?? "");
+    setContactResearchStatus("");
+    setContactResearchWarnings([]);
+  }, [selectedCompanyId, selectedCompany?.website]);
+
+  const runContactResearch = async () => {
+    if (!selectedCompany || !websiteResearchUrl.trim() || contactResearchLoading) return;
+    setContactResearchLoading(true);
+    setContactResearchStatus("");
+    setContactResearchWarnings([]);
+    try {
+      const result = await researchCompanyContacts(
+        selectedCompany.companyId,
+        websiteResearchUrl.trim()
+      );
+      await load();
+      setContactResearchStatus(
+        result.contacts_found > 0
+          ? result.records_synced
+            ? `${result.contacts_found} named contact${result.contacts_found === 1 ? "" : "s"} found and saved as new, unverified records.`
+            : `${result.contacts_found} named contact${result.contacts_found === 1 ? "" : "s"} found, but one or more records could not be confirmed in Sheets.`
+          : "The public site was checked; no named decision-makers with an explicit role were found."
+      );
+      setContactResearchWarnings(result.warnings);
+      toast(
+        result.contacts_found > 0
+          ? `Found ${result.contacts_found} public contact${result.contacts_found === 1 ? "" : "s"}`
+          : "Website research finished; no named contacts found",
+        result.contacts_found > 0
+          ? result.records_synced ? "success" : "warning"
+          : "info"
+      );
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Website research failed", "error");
+    } finally {
+      setContactResearchLoading(false);
+    }
+  };
 
   return (
     <div style={{ padding: "24px" }}>
@@ -512,6 +559,18 @@ export default function CompaniesPage() {
                   <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>Fit</div>
                   <StatusBadge status={selectedCompany.industryFit} />
                 </div>
+                {selectedCompany.businessEmail && (
+                  <div>
+                    <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>Public business email</div>
+                    <a href={`mailto:${selectedCompany.businessEmail}`} style={{ fontSize: "13px" }}>{selectedCompany.businessEmail}</a>
+                  </div>
+                )}
+                {selectedCompany.businessPhone && (
+                  <div>
+                    <div style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>Public business phone</div>
+                    <a href={`tel:${selectedCompany.businessPhone}`} style={{ fontSize: "13px" }}>{selectedCompany.businessPhone}</a>
+                  </div>
+                )}
               </div>
               {selectedCompany.website && (
                 <div style={{ marginTop: "12px" }}>
@@ -532,6 +591,61 @@ export default function CompaniesPage() {
                   </a>
                 </div>
               )}
+              <div
+                style={{
+                  marginTop: "16px",
+                  padding: "14px",
+                  border: "1px solid var(--color-border-subtle)",
+                  borderRadius: "var(--radius-sm)",
+                  background: "var(--color-bg)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                  <Users size={15} style={{ color: "var(--color-accent)" }} />
+                  <strong style={{ fontSize: "13px", fontWeight: 600 }}>Find public contacts</strong>
+                </div>
+                <p style={{ fontSize: "11px", lineHeight: 1.5, color: "var(--color-text-secondary)", margin: "0 0 10px" }}>
+                  ABR does not provide company websites. Overture may list one; review it before crawling. We respect robots.txt, and any URL you add is marked operator-supplied and unverified.
+                </p>
+                <label htmlFor="company-research-website" style={{ display: "block", fontSize: "11px", color: "var(--color-text-muted)", marginBottom: "5px" }}>
+                  Public company website
+                </label>
+                <input
+                  id="company-research-website"
+                  type="url"
+                  inputMode="url"
+                  autoComplete="url"
+                  placeholder="https://company.com.au"
+                  value={websiteResearchUrl}
+                  onChange={(event) => setWebsiteResearchUrl(event.target.value)}
+                  className="input-field"
+                  style={{ width: "100%", minHeight: "44px", marginBottom: "8px" }}
+                />
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={!websiteResearchUrl.trim() || contactResearchLoading}
+                  onClick={() => void runContactResearch()}
+                  style={{ width: "100%", minHeight: "44px" }}
+                >
+                  {contactResearchLoading ? (
+                    <Loader2 size={15} style={{ animation: "spin 1s linear infinite" }} />
+                  ) : (
+                    <Users size={15} />
+                  )}
+                  {contactResearchLoading ? "Checking public pages…" : "Crawl site for published contacts"}
+                </button>
+                {contactResearchStatus && (
+                  <div role="status" style={{ marginTop: "10px", fontSize: "11px", lineHeight: 1.5, color: "var(--color-text-secondary)" }}>
+                    {contactResearchStatus}
+                    {contactResearchWarnings.length > 0 && (
+                      <ul style={{ paddingLeft: "18px", margin: "6px 0 0" }}>
+                        {contactResearchWarnings.map((warning, index) => <li key={`${index}-${warning}`}>{warning}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
               {selectedCompany.notes && (
                 <div
                   style={{

@@ -157,6 +157,20 @@ def test_approve_does_not_wipe_other_fields():
     assert len(fake.tabs["Companies"]) == 2  # updated in place, not appended
 
 
+def test_live_tab_read_failure_is_not_indistinguishable_from_an_empty_tab():
+    class BrokenSheets(FakeSheets):
+        def get(self, spreadsheetId, range):  # noqa: A002
+            def fail():
+                raise RuntimeError("temporary Sheets API outage")
+
+            return _Req(fail)
+
+    adapter = _adapter_with(BrokenSheets())
+
+    assert asyncio.run(adapter.read_companies()) == []
+    assert "temporary Sheets API outage" in (adapter.tab_read_error("companies") or "")
+
+
 def test_user_owned_fields_keep_existing_value():
     fake = FakeSheets()
     cols = _seed_company(fake)

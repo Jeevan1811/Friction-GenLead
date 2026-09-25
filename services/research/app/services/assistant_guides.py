@@ -33,7 +33,7 @@ class Guide:
 
 
 OVERVIEW = """\
-Friction GenLead is a Queensland industrial prospecting workspace. It keeps \
+Friction GenLead is a prospecting workspace with an imported Queensland customer database and global place-based public-source search. It keeps \
 your customers and target companies, the sites (locations) they operate, and \
 the people (contacts) to talk to -- all stored in a Google Sheet that you and \
 the dashboard share.
@@ -48,13 +48,9 @@ automatically -- a person clicks Approve or Reject.
 
 LIMITATIONS = """\
 Be honest about these -- do not describe them as working:
-- Automated postcode research is disabled until live company and contact \
-sources are connected. The API rejects attempts instead of returning sample \
-prospects. Real customer/target data lives on the Companies, Locations and \
-Contacts pages (imported from the client's Excel files).
-- Search-run summaries are stored in the Google Sheet and survive restarts. \
-Detailed prospect results are not persisted because live research is not \
-connected.
+- Place-based public-source search uses the latest monthly global Overture Maps Places release; QLD postcode searches also check ABR name-search pages. Coverage is not exhaustive. A mapped category/name is not independent proof of industry, legal entity, active operations, or an operating site.
+- ABR does not provide company websites or decision-makers. Contact research only crawls a company website when a URL is available, follows that site's robots.txt, and records explicitly published evidence; no contact is auto-approved.
+- Search-run summaries and successfully saved detailed candidate rows are stored in the Google Sheet. Older history entries may contain summary counts only.
 - Company activity notes and scheduled follow-ups are stored in the Sheet; \
 open and completed follow-ups can be tracked from the Follow-ups page.
 - Original source rows from the supplied Excel workbooks are kept in the \
@@ -63,8 +59,7 @@ open and completed follow-ups can be tracked from the Follow-ups page.
 - There is no "Add company" / "Edit" form, no export button and no undo for \
 Reject yet. To add or change details, edit the Google Sheet directly; to get \
 a file, use File > Download in Google Sheets.
-- The Locations map is empty because the imported sites have no map \
-coordinates yet.
+- The Locations map displays saved coordinates; older Australian postcode-only rows can appear at labelled approximate postcode centres, not exact site addresses. Locations elsewhere need saved coordinates to be mapped.
 - The assistant cannot click buttons or change data for the user; it explains \
 and points to the right page.
 """
@@ -96,7 +91,7 @@ GUIDES: tuple[Guide, ...] = (
         steps=(
             "Open Settings from the left sidebar or your profile menu at the top right.",
             "Choose 'Start dashboard guide'. Use Back, Next or Skip to move through the screens; Escape also closes the guide.",
-            "The guide explains that new searches are disabled until live sources are connected, while search summaries and call notes are stored in the Sheet.",
+            "Search accepts a city, region, country or postcode and saves mapped public-source candidates to the Sheet for human review; call notes and follow-ups are also stored there.",
         ),
         notes=("The guide only highlights screens. It does not submit forms or change company, location or contact data.",),
         open=("/settings", "Open Settings"),
@@ -161,11 +156,11 @@ GUIDES: tuple[Guide, ...] = (
         summary="The Locations page lists every site, as cards or a table, with search and filters.",
         steps=(
             "Open Locations from the sidebar.",
-            "Search by site name, suburb, postcode or company; use the Type and Status drop-downs to filter.",
+            "Search by site, address, suburb, state, postcode, country or company; use the Type and Status drop-downs to filter.",
             "Switch between card view and table view with the two icons on the right of the toolbar.",
             "Use Next / Previous under the list (50 sites per page).",
         ),
-        notes=("The map is empty for now because the imported sites do not have map coordinates yet.",),
+        notes=("Saved exact coordinates appear as location pins. Imported Australian postcode-only locations use an approximate postcode centre and are labelled as approximate.",),
         open=("/locations", "Open Locations"),
         shots=("locations",),
     ),
@@ -226,18 +221,20 @@ GUIDES: tuple[Guide, ...] = (
     ),
     Guide(
         id="research",
-        title="Start a research search for a postcode",
-        keywords=("research", "a research", "run research", "start research", "research for", "research a", "new search", "postcode search", "discover", "prospect", "find new",
+        title="Search public sources for prospects by place",
+        keywords=("research", "a research", "run research", "start research", "research for", "research a", "new search", "postcode search", "city search", "global search", "discover", "prospect", "find new",
                   "search page", "jev", "abr", "pipeline", "generate leads", "new leads"),
-        summary="The Search page is visible, but new automated research is disabled until live sources are configured.",
+        summary="Search looks for nearby business/place candidates in the latest Overture Maps Places release worldwide and adds ABR public name matches for QLD postcodes; new candidates are saved for human review.",
         steps=(
             "Open Search from the sidebar.",
-            "Enter a 4-digit Queensland postcode (4000-4999), optionally pick an industry and the target roles.",
-            "Search is currently disabled. No sample prospects are created. Use the imported Companies, Locations and Contacts records until live research sources are connected.",
+            "Enter a city, region, country or postcode. Searches look within about 5 km of the resolved place centre; specify a suburb or region to narrow a large city.",
+            "Optionally choose an industry and target contact roles, then start the public-source search.",
+            "Review candidates, source links and warnings. Overture coverage is not exhaustive; category matches are not independent verification. Source release and contributing-source license metadata (when supplied by the source record) are retained.",
+            "New candidates and their mapped locations are saved to the Google Sheet as unverified records. Listed company websites may be crawled for explicit public contact evidence; contacts are not guessed or auto-approved.",
         ),
         notes=(
-            "The backend returns a clear unavailable message rather than fabricated companies or contacts.",
-            "Search history stores summary fields only; no detailed results exist to save until the live provider is connected.",
+            "Industry terms filter mapped categories but do not verify the company's actual sector. QLD postcode searches also add ABR name matches; ABR is not a complete postcode company list and does not provide websites or decision-makers.",
+            "Contact research only runs when a website URL is explicitly listed by a source. It obeys that site's robots.txt and records named people only when the page explicitly states their role; all results need review.",
         ),
         open=("/search", "Open Search"),
         shots=("search",),

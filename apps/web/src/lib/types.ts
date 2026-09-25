@@ -1,6 +1,5 @@
 /* ============================================================
-   Shared domain types for Friction GenLead — QLD industrial
-   prospects.
+   Shared domain types for Friction GenLead prospecting.
 
    These interfaces are the frontend's view of the data that lives
    in the Google Sheet (via the FastAPI `/internal/data/*` routes)
@@ -36,9 +35,13 @@ export interface Company {
   notes?: string;
   sourceVerification?: string;
   businessLandlines?: string;
+  businessPhone?: string;
+  businessEmail?: string;
   legacySourceText?: string;
   sourceProvenance?: string;
   sourceQualityFlags?: string;
+  country?: string;
+  countryCode?: string;
 }
 
 export interface Location {
@@ -58,6 +61,9 @@ export interface Location {
   rawPostcode?: string;
   sourceProvenance?: string;
   sourceQualityFlags?: string;
+  country?: string;
+  countryCode?: string;
+  coordinateSource?: "SHEET" | "POSTCODE_CENTROID" | "UNAVAILABLE" | string;
 }
 
 export interface Contact {
@@ -160,6 +166,7 @@ export interface SyncStatus {
  */
 export interface JobRun {
   jobId: string;
+  location: string;
   postcode: string;
   industry?: string | null;
   status: string; // includes "interrupted" when a service restart stopped an in-flight job

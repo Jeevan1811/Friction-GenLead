@@ -15,10 +15,42 @@ import type { JobRun } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ResearchProgress } from "@/components/shared/research-progress";
 import { useToast } from "@/components/ui/toast";
-import { startResearch, getJobs } from "@/lib/api";
+import { startResearch, getJobs, getResearchResults } from "@/lib/api";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { SampleDataNotice } from "@/components/shared/sample-data-notice";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
+
+interface ResearchCompanyResult {
+  company_id?: string;
+  company_name?: string;
+  name?: string;
+  abn?: string;
+  abn_status?: string;
+  website?: string;
+  phone?: string;
+  email?: string;
+  business_phone?: string;
+  business_email?: string;
+  industry?: string;
+  source?: string;
+  industry_match?: string;
+  country?: string;
+  state?: string;
+  postcode?: string;
+  source_url?: string;
+  source_provenance?: string;
+}
+
+interface ResearchContactResult {
+  name?: string;
+  role?: string;
+  position?: string;
+  email?: string;
+  business_email?: string;
+  phone?: string;
+  mobile?: string;
+  source_url?: string;
+}
 
 const INDUSTRIES = [
   "Mining",
@@ -58,13 +90,16 @@ const SECONDARY_ROLES = [
 ];
 
 export default function SearchPage() {
-  const [postcode, setPostcode] = useState("");
+  const [location, setLocation] = useState("");
   const [industry, setIndustry] = useState("");
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
-  const [postcodeError, setPostcodeError] = useState("");
+  const [locationError, setLocationError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
-  const [researchPostcode, setResearchPostcode] = useState("");
+  const [researchResults, setResearchResults] = useState<{
+    companies: ResearchCompanyResult[];
+    contacts: ResearchContactResult[];
+  } | null>(null);
   const [searchRuns, setSearchRuns] = useState<JobRun[]>([]);
   const [searchRunsLoading, setSearchRunsLoading] = useState(true);
   const [searchRunsError, setSearchRunsError] = useState<string | null>(null);
@@ -94,29 +129,10 @@ export default function SearchPage() {
     );
   };
 
-  const validatePostcode = (value: string) => {
-    if (!value) {
-      setPostcodeError("");
-      return;
-    }
-    if (!/^\d{4}$/.test(value)) {
-      setPostcodeError("Enter a valid 4-digit postcode");
-      return;
-    }
-    const num = parseInt(value, 10);
-    if (num < 4000 || num > 4999) {
-      setPostcodeError("Enter a Queensland postcode (4000-4999)");
-      return;
-    }
-    setPostcodeError("");
-  };
-
-  const researchSourceReady = false;
   const canSubmit =
-    researchSourceReady &&
-    postcode.length === 4 &&
-    !postcodeError &&
-    selectedRoles.length > 0;
+    location.trim().length >= 2 &&
+    location.length <= 160 &&
+    !locationError;
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -147,7 +163,7 @@ export default function SearchPage() {
             marginTop: "4px",
           }}
         >
-          Discover and verify industrial companies and contacts in Queensland
+          Find public business candidates by location, anywhere in the world
         </p>
       </div>
 
@@ -161,15 +177,15 @@ export default function SearchPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
+          gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
             gap: "16px",
             marginBottom: "20px",
           }}
         >
-          {/* Postcode */}
+          {/* Search location */}
           <div>
             <label
-              htmlFor="postcode"
+              htmlFor="location"
               style={{
                 display: "block",
                 fontSize: "11px",
@@ -180,28 +196,30 @@ export default function SearchPage() {
                 marginBottom: "6px",
               }}
             >
-              Postcode
+              City, region, country or postcode
             </label>
             <input
-              id="postcode"
+              id="location"
               type="text"
-              inputMode="numeric"
-              maxLength={4}
-              placeholder="e.g. 4680"
-              value={postcode}
+              maxLength={160}
+              placeholder="e.g. Mackay, Queensland, Australia"
+              value={location}
               onChange={(e) => {
-                const v = e.target.value.replace(/\D/g, "").slice(0, 4);
-                setPostcode(v);
-                validatePostcode(v);
+                const value = e.target.value;
+                setLocation(value);
+                setLocationError(value.length > 160 ? "Location must be 160 characters or less" : "");
               }}
               className="input-field"
               style={{
-                borderColor: postcodeError
+                borderColor: locationError
                   ? "var(--color-error)"
                   : undefined,
               }}
             />
-            {postcodeError && (
+            <p style={{ fontSize: "11px", color: "var(--color-text-muted)", marginTop: "4px" }}>
+              Searches Overture Maps Places within about 5 km of the place centre. Add a suburb or region to narrow a large city. Coverage is uneven and results need review.
+            </p>
+            {locationError && (
               <p
                 style={{
                   fontSize: "11px",
@@ -209,7 +227,7 @@ export default function SearchPage() {
                   marginTop: "4px",
                 }}
               >
-                {postcodeError}
+                {locationError}
               </p>
             )}
           </div>
@@ -277,7 +295,7 @@ export default function SearchPage() {
               marginBottom: "10px",
             }}
           >
-            Target Roles
+            Target Roles (optional)
           </label>
 
           {/* Priority Roles */}
@@ -407,14 +425,14 @@ export default function SearchPage() {
           onClick={async () => {
             if (!canSubmit || submitting) return;
             setSubmitting(true);
+            setResearchResults(null);
             try {
               const res = await startResearch(
-                postcode,
+                location.trim(),
                 industry || undefined,
                 selectedRoles
               );
-              toast(`Research started for postcode ${postcode}`, "success");
-              setResearchPostcode(postcode);
+              toast(`Research started for ${location.trim()}`, "success");
               setActiveJobId(res.job_id);
             } catch (err) {
               const msg =
@@ -433,20 +451,8 @@ export default function SearchPage() {
           ) : (
             <Zap size={16} />
           )}
-          {submitting ? "Starting..." : researchSourceReady ? "Start Research" : "Research not connected"}
+          {submitting ? "Starting..." : "Search public sources"}
         </button>
-        {!canSubmit && postcode.length > 0 && selectedRoles.length === 0 && (
-          <p
-            style={{
-              fontSize: "11px",
-              color: "var(--color-text-muted)",
-              marginTop: "8px",
-              textAlign: "center",
-            }}
-          >
-            Select at least one target role to begin
-          </p>
-        )}
       </div>
 
       {/* Active research progress */}
@@ -458,8 +464,112 @@ export default function SearchPage() {
               `Research complete: ${data.companies_found} companies, ${data.contacts_found} contacts found`,
               "success"
             );
+            void getResearchResults(data.job_id)
+              .then((results) => {
+                setResearchResults({
+                  companies: results.companies as ResearchCompanyResult[],
+                  contacts: results.contacts as ResearchContactResult[],
+                });
+                void loadSearchRuns();
+              })
+              .catch((err) => {
+                toast(
+                  err instanceof Error
+                    ? err.message
+                    : "Research finished, but its detailed results could not be loaded.",
+                  "error"
+                );
+              });
           }}
         />
+      )}
+
+      {researchResults && (
+        <div className="surface-card" style={{ padding: "20px", marginBottom: "32px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", marginBottom: "12px" }}>
+            <h2 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>New public-source matches</h2>
+            <a href="/companies" className="btn-secondary" style={{ textDecoration: "none" }}>Review in Companies</a>
+          </div>
+          {researchResults.companies.length === 0 ? (
+            <p style={{ fontSize: "13px", color: "var(--color-text-secondary)" }}>No new matches were added. Existing and rejected businesses are suppressed to avoid duplicates.</p>
+          ) : (
+            <div style={{ display: "grid", gap: "10px" }}>
+              {researchResults.companies.map((company, index) => {
+                const companyName = company.company_name || company.name || "Unnamed public-source candidate";
+                let sourceUrl = company.source_url || "";
+                let sourceProvider = company.source || "Public source";
+                if (!sourceUrl && company.source_provenance) {
+                  try {
+                    const provenance = JSON.parse(company.source_provenance);
+                    sourceUrl = provenance.record_url || "";
+                    sourceProvider = provenance.provider || sourceProvider;
+                  } catch {
+                    sourceUrl = "";
+                  }
+                }
+                const sourceName = sourceProvider.toLowerCase().includes("overture") || sourceProvider.toLowerCase() === "overture_maps"
+                  ? "Overture Maps candidate"
+                  : sourceProvider.toLowerCase().includes("openstreetmap")
+                    ? "OpenStreetMap candidate"
+                  : sourceProvider.toLowerCase().includes("abn") || sourceProvider.toLowerCase().includes("abr")
+                    ? "ABR name match"
+                    : "Public-source candidate";
+                return (
+                  <div key={company.company_id || `${company.abn || companyName}-${index}`} style={{ padding: "12px", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "12px" }}>
+                      <strong style={{ fontSize: "14px" }}>{companyName}</strong>
+                      <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>{sourceName} · needs review</span>
+                    </div>
+                    <div style={{ marginTop: "4px", fontSize: "12px", color: "var(--color-text-secondary)" }}>
+                      {[company.country, company.state, company.postcode].filter(Boolean).join(" · ") || "Location details may be incomplete"}
+                      {company.abn ? ` · ABN ${company.abn} (${company.abn_status || "status unconfirmed"})` : " · no ABN supplied"}
+                      {company.industry ? ` · source tag: ${company.industry}` : ""}
+                      {" · sector, operation and legal status are not independently verified"}
+                    </div>
+                    {company.industry_match && (
+                      <div style={{ marginTop: "4px", fontSize: "11px", color: "var(--color-text-muted)" }}>
+                        Search match evidence: {company.industry_match === "TAG_MATCH" ? "mapped industry tag" : company.industry_match === "INDUSTRY_FEATURE_MATCH" ? "mapped industry feature" : "company name only"}
+                      </div>
+                    )}
+                    {company.website && (
+                      <a href={company.website} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: "5px", marginRight: "12px", fontSize: "12px" }}>
+                        Visit listed website
+                      </a>
+                    )}
+                    {(company.business_email || company.email) && (
+                      <a href={`mailto:${company.business_email || company.email}`} style={{ display: "inline-block", marginTop: "5px", marginRight: "12px", fontSize: "12px" }}>
+                        {company.business_email || company.email}
+                      </a>
+                    )}
+                    {(company.business_phone || company.phone) && (
+                      <a href={`tel:${company.business_phone || company.phone}`} style={{ display: "inline-block", marginTop: "5px", marginRight: "12px", fontSize: "12px" }}>
+                        {company.business_phone || company.phone}
+                      </a>
+                    )}
+                    {sourceUrl && (
+                      <a href={sourceUrl} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: "5px", fontSize: "12px" }}>
+                        View {sourceProvider} source
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {researchResults.contacts.length > 0 && (
+            <div style={{ marginTop: "16px" }}>
+              <h3 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>Publicly listed people</h3>
+              {researchResults.contacts.map((contact, index) => (
+                <div key={`${contact.name || "contact"}-${index}`} style={{ fontSize: "12px", color: "var(--color-text-secondary)", marginBottom: "6px" }}>
+                  {contact.name || "Unnamed contact"} — {contact.role || contact.position || "role not stated"}
+                  {(contact.email || contact.business_email) && ` · ${contact.email || contact.business_email}`}
+                  {(contact.phone || contact.mobile) && ` · ${contact.phone || contact.mobile}`}
+                  {contact.source_url && <> · <a href={contact.source_url} target="_blank" rel="noreferrer">source</a></>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Recent searches */}
@@ -504,7 +614,7 @@ export default function SearchPage() {
                 color: "var(--color-text-muted)",
               }}
             >
-              No saved research runs yet. Search will become available when live company and contact sources are connected.
+              No saved research runs yet. Search a city, region, country or postcode for mapped public business candidates.
             </p>
           </div>
         ) : (
@@ -551,7 +661,7 @@ export default function SearchPage() {
                     color: "var(--color-text-secondary)",
                   }}
                 >
-                  {run.postcode}
+                  {(run.location || run.postcode || "?").slice(0, 2)}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
@@ -569,7 +679,7 @@ export default function SearchPage() {
                         color: "var(--color-text)",
                       }}
                     >
-                      Postcode {run.postcode}
+                      {run.location || run.postcode || "Location not recorded"}
                     </span>
                     {run.industry && (
                       <span

@@ -110,6 +110,7 @@ def test_dashboard_tour_guide_points_to_settings_and_is_non_mutating():
     assert any("does not submit forms" in note for note in guide.notes)
 
 
-def test_research_guide_is_honest_about_sample_data():
+def test_research_guide_is_honest_about_public_search_limits():
     research = next(g for g in GUIDES if g.id == "research")
-    assert any("disabled" in n.lower() or "fabricated" in n.lower() for n in research.notes)
+    assert any("not exhaustive" in step.lower() for step in research.steps)
+    assert any("robots.txt" in note.lower() for note in research.notes)

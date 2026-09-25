@@ -331,7 +331,7 @@ export default function DashboardPage() {
             <BookOpenText size={18} style={{ color: "var(--color-accent)", flexShrink: 0, marginTop: 2 }} />
             <div>
               <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginBottom: "12px" }}>
-                Review the imported company records first. Postcode research and new-contact discovery are still in sample mode, so their examples are not real prospects.
+                Review imported records or search a Queensland postcode for new public ABR matches. New matches need human review; ABR does not verify industry, operating sites, websites or decision-makers.
               </p>
               <Link
                 href="/settings"

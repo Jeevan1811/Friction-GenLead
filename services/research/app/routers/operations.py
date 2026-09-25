@@ -5,35 +5,38 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.services.auth import require_auth
 from app.services.jev import Jev
+from app.services.osm_discovery import OpenStreetMapDiscovery
+from app.services.overture_discovery import OverturePlacesDiscovery
 from app.services.sheets_instance import sheets_adapter
 
 router = APIRouter(
     prefix="/internal/ops", tags=["operations"], dependencies=[Depends(require_auth)]
 )
 
-jev = Jev(sheets=sheets_adapter)
+jev = Jev(
+    sheets=sheets_adapter,
+    places=OverturePlacesDiscovery(geocoder=OpenStreetMapDiscovery()),
+)
 
 
 class StartResearchRequest(BaseModel):
-    postcode: str
-    industry: str | None = None
-    roles: list[str] = Field(default_factory=list)
+    location: str = Field(..., min_length=2, max_length=160)
+    industry: str | None = Field(default=None, max_length=80)
+    roles: list[str] = Field(default_factory=list, max_length=20)
 
-    @field_validator("postcode")
+    @field_validator("location")
     @classmethod
-    def validate_postcode(cls, v: str) -> str:
-        v = v.strip()
-        if not v.isdigit() or len(v) != 4:
-            raise ValueError("Postcode must be 4 digits")
-        code = int(v)
-        if code < 4000 or code > 4999:
-            raise ValueError("Only QLD postcodes (4000-4999) are supported")
-        return v
+    def validate_location(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if len(value) < 2:
+            raise ValueError("Enter a city, region, country, or postcode.")
+        return value
 
 
 class JobSummary(BaseModel):
     job_id: str
-    postcode: str
+    location: str
+    postcode: str = ""
     industry: str | None
     status: str
     companies_found: int
@@ -44,14 +47,29 @@ class JobSummary(BaseModel):
 
 @router.post("/research")
 async def start_research(request: StartResearchRequest) -> dict:
-    """Refuse to launch until real company and contact sources are wired."""
-    raise HTTPException(
-        status_code=503,
-        detail=(
-            "Automated prospect research is not connected to a live ABR/company source "
-            "or contact finder yet. No sample prospects were created."
+    """Start a bounded global Places search, supplementing QLD postcode queries with ABR."""
+    if not jev.sheets or not jev.sheets.is_live:
+        raise HTTPException(
+            status_code=503,
+            detail="Live Google Sheets is unavailable; research was not started or saved.",
+        )
+    try:
+        job = await jev.start_research(
+            location=request.location,
+            industry=request.industry,
+            target_roles=request.roles,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Research could not start: {exc}") from exc
+    return {
+        "job_id": job.job_id,
+        "location": job.location_query or job.postcode,
+        "status": job.status,
+        "message": (
+            "Search started using the latest global Overture Maps Places release and, for QLD postcodes, "
+            "ABR name matches. Coverage is non-exhaustive; review company identity, industry, operation, and contacts."
         ),
-    )
+    }
 
 
 @router.get("/research/{job_id}")
@@ -63,6 +81,7 @@ async def get_research_status(job_id: str) -> JobSummary:
 
     return JobSummary(
         job_id=job.job_id,
+        location=job.location_query or job.postcode,
         postcode=job.postcode,
         industry=job.industry,
         status=job.status,
@@ -93,8 +112,20 @@ async def get_research_results(job_id: str) -> dict:
             detail="This saved history entry contains a summary only; detailed prospect results were not stored.",
         )
 
+    if job.status == "running":
+        raise HTTPException(status_code=409, detail="Research is still running.")
+
+    try:
+        job = await jev.get_job_results(job)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Saved research results could not be read from the canonical Google Sheet.",
+        ) from exc
+
     return {
         "job_id": job.job_id,
+        "location": job.location_query or job.postcode,
         "status": job.status,
         "companies": job.companies_found,
         "contacts": job.contacts_found,
@@ -110,6 +141,7 @@ async def list_jobs() -> list[dict]:
     return [
         {
             "job_id": j.job_id,
+            "location": j.location_query or j.postcode,
             "postcode": j.postcode,
             "industry": j.industry,
             "status": j.status,

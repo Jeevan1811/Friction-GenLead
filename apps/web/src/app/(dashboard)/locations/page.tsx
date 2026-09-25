@@ -59,8 +59,11 @@ export default function LocationsPage() {
         const company = companyById.get(loc.companyId);
         return (
           loc.siteName.toLowerCase().includes(q) ||
+          loc.address?.toLowerCase().includes(q) ||
           loc.suburb?.toLowerCase().includes(q) ||
+          loc.state?.toLowerCase().includes(q) ||
           loc.postcode.includes(q) ||
+          loc.country?.toLowerCase().includes(q) ||
           loc.rawPostcode?.toLowerCase().includes(q) ||
           company?.companyName.toLowerCase().includes(q)
         );
@@ -85,7 +88,7 @@ export default function LocationsPage() {
           Locations
         </h1>
         <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginTop: "4px" }}>
-          Operational sites across Queensland
+          Business locations from saved prospects
         </p>
       </div>
 
@@ -261,7 +264,7 @@ export default function LocationsPage() {
                   <StatusBadge status={loc.locationType} />
                 </div>
                 <div style={{ fontSize: "12px", color: "var(--color-text-muted)", marginBottom: "8px" }}>
-                  {[loc.address, loc.suburb, [loc.state, loc.postcode].filter(Boolean).join(" ")]
+                  {[loc.address, loc.suburb, [loc.state, loc.postcode].filter(Boolean).join(" "), loc.country]
                     .filter(Boolean)
                     .join(", ")}
                 </div>

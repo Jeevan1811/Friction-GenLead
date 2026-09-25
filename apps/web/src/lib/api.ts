@@ -80,19 +80,21 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 /* ---------- Typed API functions ---------- */
 
 export async function startResearch(
-  postcode: string,
+  location: string,
   industry?: string,
   roles?: string[]
 ) {
   return apiPost<{ job_id: string; status: string; message: string }>(
     "/internal/ops/research",
-    { postcode, industry: industry || null, roles: roles || [] }
+    { location, industry: industry || null, roles: roles || [] }
   );
 }
 
 export async function getResearchStatus(jobId: string) {
   return apiGet<{
     job_id: string;
+    location: string;
+    postcode: string;
     status: string;
     companies_found: number;
     contacts_found: number;
@@ -109,11 +111,30 @@ export async function getResearchStatus(jobId: string) {
 export async function getResearchResults(jobId: string) {
   return apiGet<{
     job_id: string;
+    location: string;
     status: string;
     companies: unknown[];
     contacts: unknown[];
     warnings: string[];
   }>(`/internal/ops/research/${jobId}/results`);
+}
+
+export async function researchCompanyContacts(
+  companyId: string,
+  websiteUrl?: string,
+  roles: string[] = []
+) {
+  return apiPost<{
+    company_id: string;
+    contacts_found: number;
+    contacts: unknown[];
+    warnings: string[];
+    records_synced: boolean;
+  }>("/internal/research/contacts", {
+    company_id: companyId,
+    website_url: websiteUrl || null,
+    roles,
+  });
 }
 
 export async function verifyCompany(
@@ -279,6 +300,7 @@ export async function updateFollowUpStatus(
 
 interface JobListRow {
   job_id: string;
+  location: string;
   postcode: string;
   industry: string | null;
   status: string;
@@ -294,6 +316,7 @@ export async function getJobs(): Promise<JobRun[]> {
   const rows = await apiGet<JobListRow[]>("/internal/ops/jobs");
   return rows.map((r) => ({
     jobId: r.job_id,
+    location: r.location || r.postcode,
     postcode: r.postcode,
     industry: r.industry,
     status: r.status,

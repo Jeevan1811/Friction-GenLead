@@ -375,7 +375,7 @@ def _query_overture(
     parquet_glob = f"{OVERTURE_S3_ROOT}/{release}/theme=places/type=place/*"
     connection = duckdb.connect(
         database=":memory:",
-        config={"threads": "2", "memory_limit": "768MB", "enable_progress_bar": "false"},
+        config={"threads": "2", "memory_limit": "768MB"},
     )
     try:
         try:

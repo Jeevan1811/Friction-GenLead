@@ -1,15 +1,17 @@
 # Friction GenLead Worklog
 
-## 2026-09-26 — Locations interaction and dashboard QA (release in progress)
+## 2026-09-26 — Locations interaction and dashboard QA (deployed)
 
-- Truth: **IMPLEMENTED AND LOCALLY VERIFIED; DEPLOYMENT AND LIVE BROWSER QA PENDING**.
-- Scoped repo/worktree: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-search-guide`; branch `codex/genlead-locations-qa`; starting base `8c06fba`.
+- Truth: **DEPLOYED AND LIVE-BROWSER VERIFIED**. PR #18 merged; production commit `b6e906f`.
+- Implementation branch: `codex/genlead-locations-qa` at `fe430be`, based on `8c06fba`. Docs follow-up worktree/branch: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-search-guide`, `codex/genlead-locations-qa-ledger`, based on deployed main `b6e906f`.
 - Production read-only repro: type/status filters and map filtering worked. `Verified` had no saved matches; `Unverified` did. Grid/list toggle worked. Location grid cards and table rows had no interaction. The map empty state claimed no saved locations had coordinates even when the active filter—not the dataset—was empty. The bell had no click handler and a permanent decorative dot.
 - Implemented linked keyboard-accessible company navigation from location cards/table rows; visible match/mapped counts, Clear filters, deferred search, unchanged-refresh data identity preservation, Canvas map paths and contextual empty states. Replaced the inert bell with a lazy-loaded seven-day due/overdue follow-up reminder panel (company and Follow-ups links; no push/email claims). Added bell/Sheet shortcut and all core routes to the replayable Settings tour; starts on real `/search` to avoid the `/` redirect flicker loop. Assistant help now explains the features.
-- Verification: `node --test tests/*.test.mjs` — **17 passed**; `npm run typecheck --workspace=apps/web` — passed; `python -m pytest -q` under `services/research` — **158 passed**; `npm run build --workspace=apps/web` — passed; `git diff --check` — no whitespace errors (line-ending notices only).
-- No Sheet or production data writes, prospect search, SMTP/auth/secret edits, or other VPS app changes. Do not claim deployed until only the GenLead web process is updated and live browser interactions are verified. The authenticated user browser is on production Locations.
+- Verification: `node --test tests/*.test.mjs` — **17 passed**; web typecheck — passed; research `python -m pytest -q` — **158 passed**; optimized Next builds passed locally and on VPS; `git diff --check` — clean apart from line-ending notices.
+- Deployment: VPS checkout `/opt/frictiongenlead/app` at `b6e906f`; only `frictiongenlead-web` restarted. Internal login returned 200 on actual port 3113; API health `ok`; both GenLead PM2 processes online. Preserved existing untracked production backup, ecosystem config and research virtualenv; other VPS services untouched.
+- Live browser: counts **4,229 / 6,360 / 1,708**; map **6,329 mapped / 31 unmapped**. Verified produced zero rows and correct empty-map copy; Clear restored all 6,360. Mine produced 26 rows/26 mapped. Grid card and table-row link each opened the linked company details drawer. Bell opened and showed “No follow-ups due soon.” All 11 guide steps advanced without route flicker, finished at Settings, and remained replayable; Sheet shortcut pointed at the live workbook.
+- No Sheet writes or prospect searches; no SMTP/auth/secret or unrelated VPS changes. No controlled performance/latency benchmark or browser DevTools console audit was captured; the DevTools MCP exposed only `about:blank`, not the authenticated IAB page. Optimizations are code/build/interaction verified, not quantified against a before-state. Sheet refresh remains polling/focus based, not instant push.
 - Review limitation: guarded Claude release review could not run because org policy disables subscription access; no bypass or Gemini lane was used.
-- Next: review final diff; release via scoped branch/PR and approved GenLead web-only deployment; verify live card→company, filters/map including zero matches and Clear filters, bell, complete tour/no flicker, and zero new browser console errors; update this ledger with deployed commit and exact evidence.
+- Independent Claude release review could not run because organization policy disabled subscription access; Gemini was not used on this private-client repo. Feature task is complete; future provider/credential changes or production data writes need appropriate owner input/authorization.
 
 ## 2026-09-24 — SSRF redirect and streamed chat fixes (deployed)
 

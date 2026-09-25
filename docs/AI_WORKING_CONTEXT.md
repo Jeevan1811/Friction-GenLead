@@ -2,26 +2,25 @@
 
 Last updated: 2026-09-26 (Asia/Singapore)
 
-## Active release follow-up — web search, guide, and Sheet access
+## Active release follow-up — search, guide, Sheet access, saved-run recovery
 
 - Active isolated worktree: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-search-guide`.
-- Branch/base: `codex/genlead-search-guide`, based on clean `origin/main` at `056a779` (`Scope company tab counts to saved search results`).
-- Scope: `private-only` MSV GenLead. Add a bounded Firecrawl web-index search alongside deployed Overture/ABR; fix the guide's invalid `/` first step; add a Google Sheet shortcut to desktop sidebar and mobile More menu. Original `genlead-shipfix` checkout and its uncommitted user auth/device-lock work remain untouched.
-- Implementation status: **SOURCE IMPLEMENTED; 135 backend tests PASS; 7 frontend Node tests PASS; web typecheck/build PASS; NOT YET DEPLOYED; authenticated browser QA pending**.
+- Current branch/base: `codex/genlead-run-recovery`, based on deployed `origin/main` at `28a39b2` (PR #11).
+- Release scope: `private-only` MSV GenLead. PR #11 added bounded Firecrawl web-index candidates, stabilized the dashboard guide, and added desktop/mobile Google Sheet access. It is merged and deployed. The original `genlead-shipfix` checkout and its user-owned auth/device-lock work remain untouched.
+- Current production issue: a saved Gladstone run's Companies link opens, but its result endpoint reports summary-only after API restart. The canonical `SearchRuns` row has persisted company IDs while `details_saved=false`. The source recovery fix now treats those exact IDs as candidates for restoration and still requires full ID/count and canonical-row parity before returning results. The reason the stored flag is false remains under investigation.
+- Current status: PR #11 deployed; Firecrawl adapter VPS smoke returned 8 candidates without touching Sheets; desktop Sheet shortcut and saved-run route are browser-confirmed; saved-run recovery hotfix is source-only and awaiting focused PR/deploy. Do not claim complete browser QA until the old run yields its full cohort and the guide/mobile navigation are checked.
 - Firecrawl limits: at most three keyless searches × five results per uncached user search; six-hour in-process cache; queries contain only the submitted place and sector; no API key/header; directory/social and non-public hosts filtered; API partial failures preserve other sources. Source blending gives a small ABR lead-in, then two mapped candidates per web candidate, capped at 10 web candidates; if web search returns fewer, Overture fills the remaining capacity. Web matches remain unverified, carry provenance/quality flags, and do not create a Locations row or map coordinate. The existing 30-new-company Sheet-write cap and SSRF/robots-checked company-site crawler remain in place.
 - UI: guide begins at `/search` on the existing `search-overview` element, with one Search step. Google Sheet links use `SyncStatus.spreadsheetId`, appear only when valid, and keep a fixed Google Docs host. Mobile More now opens a compact, keyboard-dismissible navigation popover.
-- Verification: `python -m pytest -q` — 135 passed; `node --test tests/*.test.mjs` from `apps/web` — 7 passed; `npm run typecheck --workspace=apps/web` and `npm run build --workspace=apps/web` — passed; `npm ci` — 0 vulnerabilities. Re-run `git diff --check` after final edits.
-- Remaining release evidence: verify the keyless endpoint from the VPS without writing to Sheets; merge/deploy only this branch's search/tour/Sheet changes; check only `frictiongenlead-api` and `frictiongenlead-web`; test the deployed UI in the available browser if a valid session is already present. Do not run another production search or send OTP without explicit need/approval. No `.env`, credentials, device-lock files, OTP, Sheet rows, or other PM2 apps are in scope.
+- Verification: `python -m pytest -q` — 137 passed (including recovery and fail-closed regression tests); `node --test tests/*.test.mjs` from `apps/web` — 7 passed; PR #11 web typecheck/build passed locally and on VPS. Re-run `git diff --check` after final edits.
+- Remaining release evidence: review/merge the run-recovery hotfix, deploy only this feature to the same VPS, confirm the previously saved cohort and company drawer load read-only, then check tour completion and responsive More-menu Sheet access. Do not run another production search or send OTP. No `.env`, credentials, device-lock files, Sheet rows, or other PM2 apps are in scope.
 - Independent review: Claude Code access was previously denied by organization policy. Gemini/Antigravity is not used because the shared routing contract prohibits sending private-client work to that lane.
 
 ## Repository and release state
 
-- Repository: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-shipfix`
-- Working branch: `codex/genlead-run-scoped-counts`, based on `origin/main` at `072c074`.
-- Production: `31.97.70.50`, app user `frictiongenlead`; dashboard release `072c074` is live, only `frictiongenlead-web` was restarted, and API health remains OK.
-- Current task: PR #9 deployed and the saved-run link now opens the exact 30 company rows; selecting a company opens its detail drawer. Browser QA found that the status-tab badges still showed global totals while the list was run-scoped. A follow-up correction is implemented locally so badges use the selected run's rows.
-- Current follow-up verification: eight Node tests, web typecheck, and Next production build pass. The run-scoped badge correction is not yet deployed; see the latest worklog entry for release status.
-- Existing uncommitted auth/device-lock changes in this worktree belong to Jeevan and are excluded from the dashboard-polish change. Do not inspect or modify `.env`, credentials, or other VPS applications.
+- Original checkout: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-shipfix`; preserve its user-owned uncommitted auth/device-lock work.
+- Active release worktree: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-search-guide`; current hotfix branch is `codex/genlead-run-recovery`.
+- Production: `31.97.70.50`, Linux user `frictiongenlead`, checkout `/opt/frictiongenlead/app`; PR #11 merge `28a39b2` is pulled, built, and running. Only `frictiongenlead-api` and `frictiongenlead-web` were restarted; API health is OK on its configured loopback port `3114`.
+- Preserved untracked production files: `apps/web/.env.production.bak.smtp-swap-20260923-141617`, `ecosystem.config.js`, and `services/research/venv/`. No unrelated PM2 app, `.env`, credential, OTP, Google Sheet row, or auth/device-lock file was modified.
 
 ## Verified findings and changes in progress
 

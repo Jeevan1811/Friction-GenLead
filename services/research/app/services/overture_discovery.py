@@ -389,7 +389,7 @@ def _query_overture(
                 id,
                 names.primary AS name,
                 taxonomy.primary AS category_primary,
-                taxonomy.basic_category AS category_basic,
+                basic_category AS category_basic,
                 confidence,
                 operating_status,
                 bbox.xmin AS xmin,
@@ -412,7 +412,7 @@ def _query_overture(
               AND names.primary IS NOT NULL
               AND (
                 list_contains(?, taxonomy.primary)
-                OR list_contains(?, taxonomy.basic_category)
+                OR list_contains(?, basic_category)
               )
             ORDER BY confidence DESC NULLS LAST
             LIMIT ?

@@ -153,11 +153,13 @@ def test_unrecognized_industry_fails_closed_without_broadening_to_all_places():
 
 def test_duckdb_connection_uses_supported_resource_options(monkeypatch):
     observed: dict = {}
+    executed_queries: list[str] = []
 
     class FakeConnection:
         description: list = []
 
-        def execute(self, _query, _parameters=None):
+        def execute(self, query, _parameters=None):
+            executed_queries.append(query)
             return self
 
         def fetchall(self):
@@ -183,3 +185,6 @@ def test_duckdb_connection_uses_supported_resource_options(monkeypatch):
     assert rows == []
     assert observed["database"] == ":memory:"
     assert observed["config"] == {"threads": "2", "memory_limit": "768MB"}
+    query = next(query for query in executed_queries if "FROM read_parquet" in query)
+    assert "basic_category AS category_basic" in query
+    assert "taxonomy.basic_category" not in query

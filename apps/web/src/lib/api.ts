@@ -61,7 +61,12 @@ export async function apiGet<T>(path: string): Promise<T> {
   // setup), and the FastAPI backend's require_auth reads the session JWT
   // from a cookie. Without this, the browser silently drops that cookie
   // on the cross-origin request and every call 401s even when logged in.
-  const res = await fetch(`${API_BASE}${path}`, { credentials: "include" });
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: "include",
+    // These authenticated reads reflect live Sheet-backed data and must not
+    // be served from a browser's stale HTTP cache after a Sheet edit/deploy.
+    cache: "no-store",
+  });
   if (!res.ok) throw new Error(await extractErrorMessage(res));
   return res.json();
 }

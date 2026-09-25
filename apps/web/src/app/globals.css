@@ -110,7 +110,8 @@
 .genlead-map-summary {
   position: absolute;
   z-index: 500;
-  top: 12px;
+  top: auto;
+  bottom: 12px;
   left: 12px;
   max-width: min(360px, calc(100% - 24px));
   padding: 8px 11px;

@@ -95,6 +95,8 @@ _ACTIVITY_GENERIC_TERMS = frozenset({
 _LOCATION_GENERIC_TERMS = frozenset({
     "site", "sites", "location", "locations", "address", "suburb", "map", "near", "where", "which",
     "company", "companies", "companys", "page", "work", "use", "using", "help", "app", "guide", "dashboard",
+    "all", "any", "currently", "current", "overall", "total", "there", "have", "has", "live", "data",
+    "dataset", "datasets", "sheet", "sheets", "spreadsheet", "record", "records",
 })
 _COUNT_FORMS = {
     "companies": ("company", "companies"),
@@ -177,6 +179,11 @@ def _query_terms(question: str) -> list[str]:
         token for token in _tokens(question)
         if len(token) >= 3 and token not in _QUERY_STOPWORDS and token not in _NAME_STOPWORDS
     ]
+
+
+def _specific_location_terms(question: str) -> list[str]:
+    """Terms that identify an actual place/site rather than a global count."""
+    return [term for term in _query_terms(question) if term not in _LOCATION_GENERIC_TERMS]
 
 
 async def build_context(question: str, page: str | None = None) -> DataContext:
@@ -421,7 +428,7 @@ async def build_context(question: str, page: str | None = None) -> DataContext:
                 )
 
     # --- location / site lookup by suburb, address, or site name ------------
-    location_terms = [term for term in _query_terms(question) if term not in _LOCATION_GENERIC_TERMS]
+    location_terms = _specific_location_terms(question)
     if (
             (_LOCATION_INTENT.search(q_lower) or _COUNT_INTENT.search(q_lower))
             and not _ACTIVITY_INTENT.search(q_lower)
@@ -771,8 +778,8 @@ def _best_guide(question: str):
 
 def fallback_answer(question: str, ctx: DataContext, ai_down: bool = True) -> str:
     parts: list[str] = []
-    has_specific_place_result = any(
-        match.startswith(("Postcode ", "Location search:")) for match in ctx.matches
+    has_specific_place_result = bool(_POSTCODE.search(question)) or bool(
+        _specific_location_terms(question)
     )
     if _COUNT_INTENT.search(question) and not has_specific_place_result:
         q = question.lower()

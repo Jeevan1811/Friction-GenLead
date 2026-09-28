@@ -1,5 +1,14 @@
 # Friction GenLead Worklog
 
+## 2026-09-28 — provider status and understandable failure messages (approved release in progress)
+
+- Truth: **OWNER-AUTHORIZED RELEASE IN PROGRESS; ALL LOCAL TESTS/BUILD PASS; NOT YET MERGED OR DEPLOYED**. Private-only MSV GenLead. Worktree `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-search-guide`, release branch `codex/provider-health-settings-release` at `e028332db8f6c7ad7c554b021b40250ca7953831`, based on fetched `origin/main` `f494f5952284cd46293236b8538933c5a591771f`. Implementation originated at `0eb2e230ba577249f6807176f817aa9e22859f95`; the superseded local release-ledger branch was kept intact.
+- Settings now exposes a protected, read-only AI/research status panel. It shows the configured model and credential presence only, plus last-known state, what failed, and what to do next. It does not reveal credential values or make test provider requests. OpenRouter billing/usage failures explain that AI-written replies are unavailable while the built-in guide and live-data answers remain usable.
+- Chat and research error responses sanitize numeric upstream status codes, including `402`, into plain language. Jev's source list identifies its public research sources and that it is not an AI model; unavailable/unconfigured states are not presented as unexplained errors. Added regression coverage for status reporting, chat fallback in normal and streamed responses, Firecrawl errors and response sanitization.
+- Verification: research backend **169 passed**; frontend Node tests **26 passed**; web typecheck and optimized production build passed. Local synthetic browser preview showed actionable explanation, no visible `402`, no credential-like text, no horizontal overflow and zero browser logs. `git diff --check` passed (line-ending warnings only). Temporary local preview processes were stopped.
+- Health state is per API process, not durable; it updates on feature use and clears on restart. No proactive balance/credit query is made. Therefore, a provider's first failure is only identified when that feature runs; before then Settings honestly reports “not checked.”
+- Guarded Claude QA was attempted through the required router but could not start because the organization disabled Claude Code subscription access. Gemini was not used. No `.env` or credential value accessed/changed, no production provider/Sheet/billing touched, and no OTP or production search. Owner explicitly authorized deployment on 2026-09-28; next steps are a clean scoped PR, deploy only GenLead web/API, and read-only production health/Settings smoke checks. Preserve pre-existing untracked `apps/web/scripts/local-ui-preview.mjs`.
+
 ## 2026-09-26 — Locations interaction and dashboard QA (deployed)
 
 - Truth: **DEPLOYED AND LIVE-BROWSER VERIFIED**. PR #18 shipped the feature; PR #20 corrected map-summary placement. Final production commit `5135b15`.

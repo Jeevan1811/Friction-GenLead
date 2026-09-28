@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.routers import chat as chat_router
+from app.routers import operations
 from app.services import assistant
 from app.services.auth import require_auth
 
@@ -32,7 +33,7 @@ def test_stream_provider_failure_returns_fallback_and_done_event(monkeypatch):
     monkeypatch.setattr(
         assistant,
         "fallback_answer",
-        lambda _question, _context, ai_down: "Built-in fallback answer." if ai_down else "",
+        lambda _question, _context, ai_down: "Built-in fallback answer.",
     )
 
     app = FastAPI()
@@ -51,8 +52,53 @@ def test_stream_provider_failure_returns_fallback_and_done_event(monkeypatch):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
     assert "Built-in fallback answer." in response.text
+    assert "provider account has a billing or usage limit" in response.text
+    assert "402" not in response.text
     assert "partial provider answer" not in response.text
     assert "data: [DONE]" in response.text
+
+
+def test_non_streaming_provider_credit_failure_explains_the_cause_without_status_code(monkeypatch):
+    async def build_context(_question, _page):
+        return object()
+
+    async def failing_chat(_messages, **_kwargs):
+        request = httpx.Request("POST", "https://provider.example/chat")
+        response = httpx.Response(402, request=request)
+        raise httpx.HTTPStatusError("secret provider response", request=request, response=response)
+
+    monkeypatch.setattr(chat_router.llm, "api_key", "test-key")
+    monkeypatch.setattr(chat_router.llm, "chat", failing_chat)
+    monkeypatch.setattr(assistant, "build_context", build_context)
+    monkeypatch.setattr(assistant, "system_prompt", lambda _context: "test system prompt")
+    monkeypatch.setattr(
+        assistant,
+        "fallback_answer",
+        lambda _question, _context, ai_down: "Built-in fallback answer.",
+    )
+
+    app = FastAPI()
+    app.include_router(chat_router.router)
+    app.include_router(operations.router)
+    app.dependency_overrides[require_auth] = lambda: None
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            "/internal/chat",
+            json={"messages": [{"role": "user", "content": "hello"}]},
+        )
+        provider_status = client.get("/internal/ops/provider-status")
+
+    assert response.status_code == 200
+    assert "provider account has a billing or usage limit" in response.json()["response"]
+    assert "402" not in response.text
+    assert "secret provider response" not in response.text
+    assert provider_status.status_code == 200
+    chatbot = next(item for item in provider_status.json()["services"] if item["id"] == "chatbot")
+    assert chatbot["state"] == "attention"
+    assert "billing or usage limit" in chatbot["message"]
+    assert "402" not in provider_status.text
+    assert "test-key" not in provider_status.text
 
 
 def test_successful_stream_adds_button_link_on_its_own_sse_data_line(monkeypatch):

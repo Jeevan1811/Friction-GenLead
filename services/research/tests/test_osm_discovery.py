@@ -185,7 +185,8 @@ def test_overpass_5xx_uses_only_one_configured_fallback():
     rows, warnings = asyncio.run(run())
     assert rows == []
     assert endpoints == ["primary.test", "alternate.test"]
-    assert any("HTTP 504" in warning for warning in warnings)
+    assert any("temporarily unavailable" in warning for warning in warnings)
+    assert all("504" not in warning for warning in warnings)
 
 
 def test_overpass_429_does_not_rotate_to_fallback_or_retry_during_cooldown():

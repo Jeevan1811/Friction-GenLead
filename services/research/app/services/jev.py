@@ -25,6 +25,7 @@ from app.services.crawler import WebsiteCrawler, SSRFError, CrawlLimitError
 from app.services.firecrawl_search import FirecrawlSearchDiscovery
 from app.services.geo import postcode_centroid
 from app.services.overture_discovery import OverturePlacesDiscovery
+from app.services.provider_health import describe_provider_exception, provider_health
 from app.services.resolver import EntityResolver, normalize_company_name
 from app.services.sheets import GoogleSheetsAdapter
 
@@ -559,8 +560,11 @@ class Jev:
 
         except Exception as e:
             step.status = StepStatus.NEEDS_REVIEW
-            step.error = str(e)
-            job.warnings.append(f"Discovery had issues: {e}. Manual review needed.")
+            issue = describe_provider_exception("jev", e)
+            provider_health.record_issue("jev", issue)
+            detail = f"{issue['message']} {issue['next_step']}"
+            step.error = detail
+            job.warnings.append(f"Discovery had issues: {detail} Manual review needed.")
 
     async def _step_discover_public_sources(self, job: ResearchJob) -> None:
         """Discover mapped businesses globally, with ABR added for QLD postcodes."""
@@ -573,6 +577,7 @@ class Jev:
             raw_results: list[dict] = []
             web_results: list[dict] = []
             source_errors: list[str] = []
+            source_issues: list[dict[str, str]] = []
             successful_sources = 0
 
             if re.fullmatch(r"4\d{3}", location_query):
@@ -585,7 +590,9 @@ class Jev:
                     job.warnings.extend(getattr(self.abr, "last_warnings", []))
                     successful_sources += 1
                 except Exception as exc:
-                    source_errors.append(f"ABR postcode search failed: {exc}")
+                    issue = describe_provider_exception("jev", exc)
+                    source_issues.append(issue)
+                    source_errors.append(f"ABR postcode search failed. {issue['message']} {issue['next_step']}")
 
             if self.places is not None:
                 try:
@@ -594,7 +601,11 @@ class Jev:
                     job.warnings.extend(getattr(self.places, "last_warnings", []))
                     successful_sources += 1
                 except Exception as exc:
-                    source_errors.append(f"Global public-place search failed: {exc}")
+                    issue = describe_provider_exception("jev", exc)
+                    source_issues.append(issue)
+                    source_errors.append(
+                        f"Global public-place search failed. {issue['message']} {issue['next_step']}"
+                    )
 
             if self.web_search is not None:
                 try:
@@ -607,10 +618,25 @@ class Jev:
                     successful_sources += 1
                 except Exception as exc:
                     logger.warning("Public web search failed: %s", type(exc).__name__)
-                    source_errors.append("Public web search failed; other successful sources were retained.")
+                    issue = describe_provider_exception("jev", exc)
+                    source_issues.append(issue)
+                    source_errors.append(
+                        "Public web search failed; other successful sources were retained. "
+                        f"{issue['message']} {issue['next_step']}"
+                    )
 
             if successful_sources == 0:
-                raise RuntimeError("; ".join(source_errors) or "No public discovery source is available.")
+                issue = source_issues[0] if source_issues else describe_provider_exception(
+                    "jev", RuntimeError("no research source completed")
+                )
+                provider_health.record_issue("jev", issue)
+                raise RuntimeError("; ".join(source_errors) or issue["message"])
+
+            if source_issues:
+                provider_health.record_issue("jev", source_issues[0])
+            else:
+                provider_health.record_success("jev")
+
             raw_results = _blend_public_source_candidates(raw_results, web_results)
             job.warnings.extend(source_errors)
             if not raw_results and source_errors:
@@ -958,9 +984,12 @@ class Jev:
                     review_count += 1
             except Exception as e:
                 company["verification"] = "NEEDS_REVIEW"
-                company["verification_note"] = f"ABR lookup failed: {e}"
+                issue = describe_provider_exception("jev", e)
+                provider_health.record_issue("jev", issue)
+                detail = f"{issue['message']} {issue['next_step']}"
+                company["verification_note"] = f"ABR lookup failed: {detail}"
                 review_count += 1
-                job.warnings.append(f"ABR lookup failed for {abn}: {e}")
+                job.warnings.append(f"ABR lookup failed for {abn}: {detail}")
 
             if self.sheets:
                 sync = await self.sheets.upsert_company({
@@ -1020,7 +1049,10 @@ class Jev:
                 except CrawlLimitError as exc:
                     return company, [], f"Crawl limit for {website}: {exc}"
                 except Exception as exc:
-                    return company, [], f"Crawl failed for {website}: {exc}"
+                    issue = describe_provider_exception("jev", exc)
+                    provider_health.record_issue("jev", issue)
+                    detail = f"{issue['message']} {issue['next_step']}"
+                    return company, [], f"Crawl failed for {website}: {detail}"
 
         crawl_results = await asyncio.gather(*(crawl_company(company) for company in selected))
         seen_contacts: set[tuple[str, str, str, str]] = set()

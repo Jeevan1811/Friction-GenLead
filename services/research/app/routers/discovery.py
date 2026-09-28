@@ -38,6 +38,7 @@ from ..models.schemas import (
 from ..services.auth import require_auth
 from ..services.abr import ABRAdapter, validate_abn
 from ..services.jev import Jev, PipelineStep, ResearchJob
+from ..services.provider_health import describe_provider_exception, provider_health
 from ..services.resolver import normalize_company_name
 from ..services.sheets_instance import sheets_adapter
 
@@ -83,7 +84,10 @@ async def verify_company(request: VerifyCompanyRequest) -> VerifyCompanyResponse
         try:
             entity = await ABRAdapter().lookup_abn(abn)
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f"Public ABR verification failed: {exc}") from exc
+            issue = describe_provider_exception("jev", exc)
+            provider_health.record_issue("jev", issue)
+            detail = f"{issue['message']} {issue['next_step']}"
+            raise HTTPException(status_code=502, detail=f"Public ABR verification failed. {detail}") from exc
         if entity is None:
             return VerifyCompanyResponse(
                 company_id=request.company_id,
@@ -552,7 +556,10 @@ async def research_contacts(
     try:
         await research_service._step_research_contacts(job)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Company-site contact research failed: {exc}") from exc
+        issue = describe_provider_exception("jev", exc)
+        provider_health.record_issue("jev", issue)
+        detail = f"{issue['message']} {issue['next_step']}"
+        raise HTTPException(status_code=502, detail=f"Company-site contact research failed. {detail}") from exc
 
     contacts: list[Contact] = []
     for result in job.contacts_found:

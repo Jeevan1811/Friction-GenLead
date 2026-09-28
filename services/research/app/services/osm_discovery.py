@@ -20,6 +20,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.services.provider_health import provider_http_error_message
+
 logger = logging.getLogger(__name__)
 
 USER_AGENT = "FrictionGenLead/1.0 (+https://friction.com.my)"
@@ -273,7 +275,7 @@ class OpenStreetMapDiscovery:
                 )
             if 500 <= response.status_code <= 599 and index + 1 < len(endpoints):
                 self.last_warnings.append(
-                    f"A public map search endpoint returned HTTP {response.status_code}; trying one configured alternate."
+                    "A public map search endpoint was temporarily unavailable; trying one configured alternate."
                 )
                 continue
             payload = self._json_response(response, "OpenStreetMap business search")
@@ -389,7 +391,7 @@ class OpenStreetMapDiscovery:
         if response.status_code == 429:
             raise PublicSourceError(f"{label} rate limit was reached; no automatic retry was made.")
         if response.status_code < 200 or response.status_code >= 300:
-            raise PublicSourceError(f"{label} returned HTTP {response.status_code}.")
+            raise PublicSourceError(provider_http_error_message("jev", response.status_code))
         try:
             return response.json()
         except ValueError as exc:

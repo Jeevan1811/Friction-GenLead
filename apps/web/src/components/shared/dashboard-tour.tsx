@@ -24,7 +24,7 @@ export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
     path: "/search",
     target: '[data-tour="search-overview"]',
     title: "Find prospects",
-    description: "Search a place and sector. Results are public-source candidates; check each one before contacting it.",
+    description: "Choose a place, valve-focused sector and target of 10–100 new candidates (30 by default). Results are unverified public-source leads; review before contacting.",
     side: "bottom",
   },
   {

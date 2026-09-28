@@ -311,3 +311,5 @@ def test_research_guide_is_honest_about_public_search_limits():
     research = next(g for g in GUIDES if g.id == "research")
     assert any("not exhaustive" in step.lower() for step in research.steps)
     assert any("robots.txt" in note.lower() for note in research.notes)
+    assert any("10 to 100" in step for step in research.steps)
+    assert any("Valve-focused" in step for step in research.steps)

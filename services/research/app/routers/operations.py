@@ -26,6 +26,7 @@ class StartResearchRequest(BaseModel):
     location: str = Field(..., min_length=2, max_length=160)
     industry: str | None = Field(default=None, max_length=80)
     roles: list[str] = Field(default_factory=list, max_length=20)
+    max_companies: int = Field(default=30, ge=10, le=100)
 
     @field_validator("location")
     @classmethod
@@ -61,6 +62,7 @@ async def start_research(request: StartResearchRequest) -> dict:
             location=request.location,
             industry=request.industry,
             target_roles=request.roles,
+            max_companies=request.max_companies,
         )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Research could not start: {exc}") from exc

@@ -21,6 +21,15 @@ import { PageLoading, PageError } from "@/components/shared/page-status";
 import { SampleDataNotice } from "@/components/shared/sample-data-notice";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
 import { buildResearchRunCompaniesHref } from "@/lib/research-run-results";
+import {
+  COMPANY_TARGET_MAX,
+  COMPANY_TARGET_MIN,
+  COMPANY_TARGET_STEP,
+  DEFAULT_COMPANY_TARGET,
+  DEFAULT_SEARCH_SECTOR,
+  OTHER_INDUSTRY_OPTIONS,
+  VALVE_SECTOR_OPTIONS,
+} from "@/lib/research-search-controls.mjs";
 
 interface ResearchCompanyResult {
   company_id?: string;
@@ -54,15 +63,6 @@ interface ResearchContactResult {
   source_url?: string;
 }
 
-const INDUSTRIES = [
-  "Mining",
-  "Energy",
-  "Heavy Industry",
-  "Construction",
-  "Transport",
-  "Manufacturing",
-];
-
 const PRIORITY_ROLES = [
   "Owner",
   "Managing Director",
@@ -93,7 +93,8 @@ const SECONDARY_ROLES = [
 
 export default function SearchPage() {
   const [location, setLocation] = useState("");
-  const [industry, setIndustry] = useState("");
+  const [industry, setIndustry] = useState(DEFAULT_SEARCH_SECTOR);
+  const [companyLimit, setCompanyLimit] = useState(DEFAULT_COMPANY_TARGET);
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [locationError, setLocationError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -175,15 +176,17 @@ export default function SearchPage() {
       {/* Search form */}
       <div
         className="surface-card"
-        style={{ padding: "24px", marginBottom: "32px" }}
+        style={{ marginBottom: "32px" }}
       >
         <div
           style={{
             display: "grid",
-          gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+            gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
             gap: "16px",
             marginBottom: "20px",
+            padding: "24px 24px 0",
           }}
+          className="genlead-search-fields"
         >
           {/* Search location */}
           <div>
@@ -214,6 +217,7 @@ export default function SearchPage() {
               }}
               className="input-field"
               style={{
+                minHeight: "44px",
                 borderColor: locationError
                   ? "var(--color-error)"
                   : undefined,
@@ -249,7 +253,7 @@ export default function SearchPage() {
                 marginBottom: "6px",
               }}
             >
-              Industry
+              Target sector
             </label>
             <div style={{ position: "relative" }}>
               <select
@@ -261,14 +265,24 @@ export default function SearchPage() {
                   appearance: "none",
                   paddingRight: "36px",
                   cursor: "pointer",
+                  minHeight: "44px",
                 }}
               >
                 <option value="">All industries</option>
-                {INDUSTRIES.map((ind) => (
-                  <option key={ind} value={ind}>
-                    {ind}
-                  </option>
-                ))}
+                <optgroup label="Valve prospecting">
+                  {VALVE_SECTOR_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Other sectors">
+                  {OTHER_INDUSTRY_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </optgroup>
               </select>
               <ChevronDown
                 size={16}
@@ -282,11 +296,45 @@ export default function SearchPage() {
                 }}
               />
             </div>
+            <p style={{ fontSize: "11px", color: "var(--color-text-muted)", marginTop: "4px" }}>
+              {industry === ""
+                ? "Search across all mapped business categories."
+                : "Category and web-term matching narrows discovery; review each candidate before contacting."}
+            </p>
           </div>
         </div>
 
+        <section className="genlead-search-target" aria-labelledby="company-target-label">
+          <div className="genlead-search-target-heading">
+            <label id="company-target-label" htmlFor="company-target">
+              New company target
+            </label>
+            <output htmlFor="company-target" aria-live="polite">
+              {companyLimit}
+            </output>
+          </div>
+          <input
+            id="company-target"
+            className="genlead-company-target-slider"
+            type="range"
+            min={COMPANY_TARGET_MIN}
+            max={COMPANY_TARGET_MAX}
+            step={COMPANY_TARGET_STEP}
+            value={companyLimit}
+            onChange={(event) => setCompanyLimit(Number(event.target.value))}
+            aria-describedby="company-target-help"
+          />
+          <div className="genlead-search-target-ends" aria-hidden="true">
+            <span>{COMPANY_TARGET_MIN}</span>
+            <span>{COMPANY_TARGET_MAX}</span>
+          </div>
+          <p id="company-target-help" className="genlead-search-target-help">
+            Up to {companyLimit} new candidates; duplicates are skipped and results may be fewer.
+          </p>
+        </section>
+
         {/* Role selection */}
-        <div style={{ marginBottom: "20px" }}>
+        <div style={{ margin: "0 24px 20px" }}>
           <label
             style={{
               display: "block",
@@ -424,7 +472,7 @@ export default function SearchPage() {
         <button
           disabled={!canSubmit || submitting}
           className="btn-primary"
-          style={{ width: "100%" }}
+          style={{ width: "calc(100% - 48px)", margin: "0 24px 24px" }}
           onClick={async () => {
             if (!canSubmit || submitting) return;
             setSubmitting(true);
@@ -433,7 +481,8 @@ export default function SearchPage() {
               const res = await startResearch(
                 location.trim(),
                 industry || undefined,
-                selectedRoles
+                selectedRoles,
+                companyLimit,
               );
               toast(`Research started for ${location.trim()}`, "success");
               setActiveJobId(res.job_id);

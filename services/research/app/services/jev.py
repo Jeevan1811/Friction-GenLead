@@ -30,6 +30,10 @@ from app.services.sheets import GoogleSheetsAdapter
 
 logger = logging.getLogger(__name__)
 
+MIN_RESEARCH_COMPANIES = 10
+MAX_RESEARCH_COMPANIES = 100
+DEFAULT_RESEARCH_COMPANIES = 30
+
 
 class StepStatus(StrEnum):
     PENDING = "pending"
@@ -55,6 +59,7 @@ class ResearchJob:
     postcode: str
     industry: str | None
     target_roles: list[str]
+    max_companies: int = DEFAULT_RESEARCH_COMPANIES
     location_query: str = ""
     country: str = ""
     country_code: str = ""
@@ -120,17 +125,23 @@ class Jev:
         location: str,
         industry: str | None = None,
         target_roles: list[str] | None = None,
+        max_companies: int = DEFAULT_RESEARCH_COMPANIES,
     ) -> ResearchJob:
         """Start a new research job for a user-entered place.
 
         Creates a job with 4 pipeline steps and begins execution.
         Returns the job immediately -- poll status via get_job().
         """
+        if not MIN_RESEARCH_COMPANIES <= max_companies <= MAX_RESEARCH_COMPANIES:
+            raise ValueError(
+                f"Company target must be between {MIN_RESEARCH_COMPANIES} and {MAX_RESEARCH_COMPANIES}."
+            )
         job = ResearchJob(
             job_id=str(uuid.uuid4()),
             postcode=location if re.fullmatch(r"\d{4}", location) else "",
             industry=industry,
             target_roles=target_roles or [],
+            max_companies=max_companies,
             location_query=location,
             steps=[
                 PipelineStep(name="discover"),
@@ -662,9 +673,16 @@ class Jev:
             seen_names: set[str] = set()
             seen_provider_ids: set[str] = set()
             now = datetime.now(timezone.utc).isoformat()
+            selected_limit = min(
+                MAX_RESEARCH_COMPANIES,
+                max(MIN_RESEARCH_COMPANIES, job.max_companies),
+            )
             for raw in raw_results:
-                if len(discovered) >= 30:
-                    job.warnings.append("Search was capped at 30 new companies to keep Sheet writes bounded.")
+                if len(discovered) >= selected_limit:
+                    job.warnings.append(
+                        f"Search reached the selected limit of {selected_limit} new companies; "
+                        "additional candidates were not saved."
+                    )
                     break
                 candidate = dict(raw)
                 source = str(candidate.get("source") or "ABR").upper()
@@ -1191,7 +1209,7 @@ def _provider_ids_from_provenance(value: object) -> set[str]:
 def _blend_public_source_candidates(
     primary_results: list[dict], web_results: list[dict]
 ) -> list[dict]:
-    """Interleave web candidates with mapped results so the 30-row cap is diverse."""
+    """Interleave web candidates with mapped results before applying the selected cap."""
     if not web_results:
         return list(primary_results)
 

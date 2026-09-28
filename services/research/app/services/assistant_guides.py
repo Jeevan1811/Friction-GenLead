@@ -245,12 +245,13 @@ GUIDES: tuple[Guide, ...] = (
         steps=(
             "Open Search from the sidebar.",
             "Enter a city, region, country or postcode. Searches look within about 5 km of the resolved place centre; specify a suburb or region to narrow a large city.",
-            "Optionally choose an industry and target contact roles, then start the public-source search.",
+            "Choose a sector profile (Valve-focused is the default, covering engineering, steam/boilers, food and beverage processing, and water utilities/authorities). You can select one of those sectors on its own or choose All industries.",
+            "Set the new-company target from 10 to 100 (default 30), choose optional contact roles, then start the search. This is a maximum: duplicates are skipped and public sources may return fewer.",
             "Review candidates, source links and warnings. Overture coverage is not exhaustive; category matches are not independent verification. Source release and contributing-source license metadata (when supplied by the source record) are retained.",
             "New candidates and their mapped locations are saved to the Google Sheet as unverified records. Listed company websites may be crawled for explicit public contact evidence; contacts are not guessed or auto-approved.",
         ),
         notes=(
-            "Industry terms filter mapped categories but do not verify the company's actual sector. QLD postcode searches also add ABR name matches; ABR is not a complete postcode company list and does not provide websites or decision-makers.",
+            "Sector terms filter mapped categories and public-web queries but do not verify the company's actual sector. QLD postcode searches also add ABR name matches; ABR is not a complete postcode company list and does not provide websites or decision-makers.",
             "Contact research only runs when a website URL is explicitly listed by a source. It obeys that site's robots.txt and records named people only when the page explicitly states their role; all results need review.",
         ),
         open=("/search", "Open Search"),

@@ -111,6 +111,38 @@ def test_search_bounds_global_query_and_filters_selected_industry():
     assert "gas_station" not in captured["categories"]
 
 
+def test_valve_focused_search_uses_engineering_food_and_water_categories():
+    captured: dict = {}
+
+    async def release_fetcher() -> str:
+        return "2026-09-23.0"
+
+    def query_runner(release, bounds, categories, limit):
+        captured.update(categories=categories, limit=limit)
+        return []
+
+    discovery = OverturePlacesDiscovery(
+        geocoder=FakeGeocoder(),
+        release_fetcher=release_fetcher,
+        query_runner=query_runner,
+    )
+
+    rows = asyncio.run(
+        discovery.search("Gladstone, Queensland, Australia", "Valve-focused")
+    )
+
+    assert rows == []
+    categories = set(captured["categories"])
+    assert {
+        "engineering_service",
+        "industrial_equipment_manufacturer",
+        "b2b_food_products",
+        "water_utility_provider",
+        "b2b_water_treatment_service",
+    } <= categories
+    assert "jewelry_manufacturer" not in categories
+
+
 def test_latest_release_rejects_untrusted_catalog_value():
     async def release_fetcher() -> str:
         return "../../latest"

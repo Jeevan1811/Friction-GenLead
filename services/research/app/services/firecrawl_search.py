@@ -105,6 +105,39 @@ def _place_label(location: str, place_data: dict[str, Any]) -> str:
 
 
 def _build_queries(location: str, industry: str) -> tuple[str, ...]:
+    normalized_industry = " ".join((industry or "").casefold().split())
+    focused_queries = {
+        "valve-focused": (
+            "industrial engineering and plant maintenance",
+            "steam boiler and process heating plants",
+            "food processing facilities and water utility authorities",
+        ),
+        "engineering & industrial services": (
+            "industrial engineering services",
+            "plant and process engineering",
+            "mechanical engineering maintenance",
+        ),
+        "steam & boiler operations": (
+            "steam boiler operators",
+            "industrial boiler services",
+            "steam system maintenance",
+        ),
+        "food & beverage processing": (
+            "food processing plants",
+            "food manufacturers and production sites",
+            "industrial food processing",
+        ),
+        "water utilities & authorities": (
+            "water utility authorities",
+            "water and wastewater treatment facilities",
+            "water infrastructure operators",
+        ),
+    }
+    if normalized_industry in focused_queries:
+        return tuple(
+            f"{query} in {location}"
+            for query in focused_queries[normalized_industry]
+        )
     sector = industry or "business"
     return (
         f"{sector} companies in {location}",

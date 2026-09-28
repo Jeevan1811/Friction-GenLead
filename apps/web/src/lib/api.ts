@@ -8,6 +8,10 @@ import type {
   CompanyActivity,
   SourceRecordPage,
 } from "@/lib/types";
+import {
+  buildResearchRequestBody,
+  DEFAULT_COMPANY_TARGET,
+} from "@/lib/research-search-controls.mjs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
@@ -87,11 +91,12 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 export async function startResearch(
   location: string,
   industry?: string,
-  roles?: string[]
+  roles?: string[],
+  maxCompanies = DEFAULT_COMPANY_TARGET,
 ) {
   return apiPost<{ job_id: string; status: string; message: string }>(
     "/internal/ops/research",
-    { location, industry: industry || null, roles: roles || [] }
+    buildResearchRequestBody(location, industry, roles, maxCompanies)
   );
 }
 

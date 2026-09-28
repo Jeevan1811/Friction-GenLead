@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from app.services.firecrawl_search import FirecrawlSearchDiscovery
+from app.services.firecrawl_search import _build_queries
 from app.services.osm_discovery import PublicSourceError
 
 
@@ -23,6 +24,15 @@ class _Geocoder:
 
 def _hit(title: str, url: str, description: str = "") -> dict[str, str]:
     return {"title": title, "url": url, "description": description}
+
+
+def test_valve_focused_web_queries_cover_the_selected_buyer_sectors():
+    queries = _build_queries("Gladstone, Queensland", "Valve-focused")
+
+    assert len(queries) == 3
+    joined = " ".join(queries).casefold()
+    for sector in ("engineering", "boiler", "food processing", "water utility"):
+        assert sector in joined
 
 
 def test_search_is_localized_bounded_keyless_and_filters_low_signal_domains():

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.models.enums import EvidenceSource, SyncState
+from app.routers import chat as chat_router
 from app.routers import data as data_router
 from app.routers import discovery, operations
 from app.services.auth import require_auth
@@ -25,6 +26,42 @@ def _app(*routers) -> FastAPI:
         app.include_router(router)
     app.dependency_overrides[require_auth] = lambda: None
     return app
+
+
+def test_provider_status_shows_model_and_credential_state_without_exposing_secret(monkeypatch):
+    secret = "sk-this-must-never-reach-the-browser"
+    monkeypatch.setattr(chat_router.llm, "api_key", secret)
+    monkeypatch.setattr(chat_router.llm, "model", "meta-llama/llama-3.3-70b-instruct")
+
+    with TestClient(_app(operations.router)) as client:
+        response = client.get("/internal/ops/provider-status")
+
+    assert response.status_code == 200
+    services = {service["id"]: service for service in response.json()["services"]}
+    assert services["chatbot"]["provider"] == "OpenRouter"
+    assert services["chatbot"]["model"] == "meta-llama/llama-3.3-70b-instruct"
+    assert services["chatbot"]["credential_status"] == "configured"
+    assert services["jev"]["credential_status"] == "not_required"
+    assert secret not in response.text
+    assert "api_key" not in response.text
+
+
+def test_research_start_provider_limit_explains_the_cause_without_status_code(monkeypatch):
+    async def fail_to_start(**_kwargs):
+        raise RuntimeError("upstream returned HTTP 402")
+
+    monkeypatch.setattr(operations.jev, "sheets", SimpleNamespace(is_live=True))
+    monkeypatch.setattr(operations.jev, "start_research", fail_to_start)
+
+    with TestClient(_app(operations.router)) as client:
+        response = client.post(
+            "/internal/ops/research",
+            json={"location": "Gladstone, Queensland", "industry": "Valve-focused"},
+        )
+
+    assert response.status_code == 503
+    assert "billing or usage limit" in response.json()["detail"]
+    assert "402" not in response.text
 
 
 def test_research_route_starts_without_returning_demo_claims(monkeypatch):

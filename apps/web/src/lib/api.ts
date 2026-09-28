@@ -8,6 +8,7 @@ import type {
   CompanyActivity,
   SourceRecordPage,
 } from "@/lib/types";
+import { sanitizeProviderStatusMessage } from "./provider-status-message.mjs";
 import {
   buildResearchRequestBody,
   DEFAULT_COMPANY_TARGET,
@@ -23,6 +24,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 const STATUS_FALLBACK: Record<number, string> = {
   401: "You've been signed out. Please log in again.",
   403: "You don't have permission to do that.",
+  402: "A connected service has a billing or usage-limit issue. Saved data and built-in help remain available; contact the account administrator.",
   404: "That couldn't be found — it may have been removed.",
   429: "Too many requests right now. Please wait a moment and try again.",
   500: "Something went wrong on the server. Please try again in a moment.",
@@ -43,11 +45,11 @@ async function extractErrorMessage(res: Response): Promise<string> {
     const data = await res.json();
     const detail = data?.detail ?? data?.error ?? data?.message;
     if (typeof detail === "string" && detail.trim()) {
-      return detail;
+      return sanitizeProviderStatusMessage(detail);
     }
     if (Array.isArray(detail) && detail.length > 0) {
       const first = detail[0];
-      if (typeof first?.msg === "string") return first.msg;
+      if (typeof first?.msg === "string") return sanitizeProviderStatusMessage(first.msg);
     }
   } catch {
     // Response wasn't JSON, or was empty -- fall through to the generic message.
@@ -237,6 +239,23 @@ export async function getRejected(): Promise<RejectedEntity[]> {
 
 export async function getSyncStatus(): Promise<SyncStatus> {
   return apiGet<SyncStatus>("/internal/data/sync-status");
+}
+
+export type ProviderServiceStatus = {
+  id: "chatbot" | "jev";
+  name: string;
+  provider: string;
+  model: string | null;
+  credential_status: "configured" | "not_configured" | "not_required";
+  state: "not_checked" | "healthy" | "attention" | "not_configured";
+  message: string;
+  next_step: string;
+  checked_at: string | null;
+  sources?: string[];
+};
+
+export async function getProviderStatus(): Promise<{ services: ProviderServiceStatus[] }> {
+  return apiGet<{ services: ProviderServiceStatus[] }>("/internal/ops/provider-status");
 }
 
 export async function getSourceRecords(

@@ -8,6 +8,7 @@ from app.services.firecrawl_search import FirecrawlSearchDiscovery
 from app.services.jev import Jev
 from app.services.osm_discovery import OpenStreetMapDiscovery
 from app.services.overture_discovery import OverturePlacesDiscovery
+from app.services.provider_health import describe_provider_exception, provider_health
 from app.services.sheets_instance import sheets_adapter
 
 router = APIRouter(
@@ -49,6 +50,44 @@ class JobSummary(BaseModel):
     warnings: list[str]
 
 
+@router.get("/provider-status")
+async def get_provider_status() -> dict:
+    """Return safe model/provider status without exposing configured credentials."""
+    from app.routers.chat import llm
+
+    if not llm.api_key:
+        provider_health.record_not_configured("chatbot")
+
+    chatbot = provider_health.get("chatbot")
+    jev_status = provider_health.get("jev")
+    return {
+        "services": [
+            {
+                "id": "chatbot",
+                "name": "AI assistant",
+                "provider": "OpenRouter",
+                "model": str(llm.model)[:120],
+                "credential_status": "configured" if llm.api_key else "not_configured",
+                **chatbot,
+            },
+            {
+                "id": "jev",
+                "name": "Jev prospect research",
+                "provider": "Public research sources",
+                "model": "Not AI-powered",
+                "sources": [
+                    "Overture Maps",
+                    "OpenStreetMap",
+                    "Firecrawl web search",
+                    "ABR for eligible Queensland postcode searches",
+                ],
+                "credential_status": "not_required",
+                **jev_status,
+            },
+        ]
+    }
+
+
 @router.post("/research")
 async def start_research(request: StartResearchRequest) -> dict:
     """Start a bounded global Places and public-web search, supplementing QLD postcodes with ABR."""
@@ -65,7 +104,10 @@ async def start_research(request: StartResearchRequest) -> dict:
             max_companies=request.max_companies,
         )
     except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Research could not start: {exc}") from exc
+        issue = describe_provider_exception("jev", exc)
+        provider_health.record_issue("jev", issue)
+        detail = f"{issue['message']} {issue['next_step']}"
+        raise HTTPException(status_code=503, detail=detail) from exc
     return {
         "job_id": job.job_id,
         "location": job.location_query or job.postcode,

@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from app.services import assistant
 from app.services.auth import require_auth
 from app.services.llm import LLMService
+from app.services.provider_health import provider_health
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,18 @@ router = APIRouter(
 )
 
 llm = LLMService()
+
+
+def _provider_status_code(exc: Exception) -> int | None:
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    return status if isinstance(status, int) else None
+
+
+def _fallback_with_provider_reason(question: str, context: object) -> str:
+    answer = assistant.fallback_answer(question, context, ai_down=False)
+    status = provider_health.get("chatbot")
+    explanation = " ".join(part for part in (status["message"], status["next_step"]) if part)
+    return f"{answer}\n\n{explanation}".strip()
 
 # Only the recent turns go to the model: it keeps prompts small (free-tier
 # limits) and the knowledge base + live data are re-attached every turn anyway.
@@ -72,17 +85,19 @@ async def chat(request: ChatRequest):
                 async for chunk in llm.chat_stream(messages):
                     chunks.append(chunk)
             except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
-                status = getattr(getattr(exc, "response", None), "status_code", None)
+                status = _provider_status_code(exc)
+                provider_health.record_failure("chatbot", status)
                 logger.warning(
                     "Streaming LLM unavailable (%s: status=%s); using built-in guide",
                     type(exc).__name__,
                     status,
                 )
-                fallback = assistant.fallback_answer(question, ctx, ai_down=True)
+                fallback = _fallback_with_provider_reason(question, ctx)
                 yield f"data: {fallback}\n\n"
                 yield "data: [DONE]\n\n"
                 return
 
+            provider_health.record_success("chatbot")
             response = assistant.add_navigation(
                 question, assistant.sanitize("".join(chunks))
             )
@@ -94,21 +109,24 @@ async def chat(request: ChatRequest):
         return StreamingResponse(generate(), media_type="text/event-stream")
 
     if not llm.api_key:
+        provider_health.record_not_configured("chatbot")
         return ChatResponse(
-            response=assistant.fallback_answer(question, ctx, ai_down=False),
+            response=_fallback_with_provider_reason(question, ctx),
             model="built-in-guide",
         )
 
     try:
         text = await llm.chat(messages, temperature=0.2, max_tokens=700)
+        provider_health.record_success("chatbot")
         safe_text = assistant.sanitize(text)
         return ChatResponse(
             response=assistant.add_navigation(question, safe_text), model=llm.model
         )
     except (httpx.HTTPError, KeyError, IndexError, ValueError) as exc:
-        status = getattr(getattr(exc, "response", None), "status_code", None)
+        status = _provider_status_code(exc)
+        provider_health.record_failure("chatbot", status)
         logger.warning("LLM unavailable (%s: status=%s); using built-in guide", type(exc).__name__, status)
         return ChatResponse(
-            response=assistant.fallback_answer(question, ctx, ai_down=True),
+            response=_fallback_with_provider_reason(question, ctx),
             model="built-in-guide",
         )

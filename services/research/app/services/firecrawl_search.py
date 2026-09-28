@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from app.services.osm_discovery import PublicSourceError
+from app.services.provider_health import provider_http_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -316,7 +317,7 @@ class FirecrawlSearchDiscovery:
             async with client.stream("POST", SEARCH_URL, json=payload) as response:
                 if response.status_code < 200 or response.status_code >= 300:
                     raise PublicSourceError(
-                        f"Firecrawl web search returned HTTP {response.status_code}."
+                        provider_http_error_message("jev", response.status_code)
                     )
                 body = bytearray()
                 async for chunk in response.aiter_bytes():

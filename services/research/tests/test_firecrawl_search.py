@@ -133,10 +133,11 @@ def test_provider_failure_before_any_result_raises_safe_error_and_does_not_retry
             service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client)
             await service.search("Gladstone, Queensland", "Mining")
 
-    with pytest.raises(PublicSourceError, match="HTTP 429") as error:
+    with pytest.raises(PublicSourceError, match="limiting requests") as error:
         asyncio.run(run())
 
     assert call_count == 1
+    assert "429" not in str(error.value)
     assert "do not surface" not in str(error.value)
 
 
@@ -188,3 +189,18 @@ def test_identical_search_is_cached_to_bound_provider_usage():
     assert call_count == 3
     assert first == second
     assert len(first) == 1
+
+
+def test_credit_limited_search_explains_the_cause_without_showing_status_code():
+    async def run() -> None:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(402))
+        ) as client:
+            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client)
+            await service.search("Gladstone, Queensland", "Mining")
+
+    with pytest.raises(PublicSourceError) as error:
+        asyncio.run(run())
+
+    assert "billing or usage limit" in str(error.value)
+    assert "402" not in str(error.value)

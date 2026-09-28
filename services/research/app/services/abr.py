@@ -20,6 +20,7 @@ from urllib.parse import urljoin, urlparse
 from pydantic import BaseModel
 
 from app.services.crawler import WebsiteCrawler
+from app.services.provider_health import describe_provider_exception
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,10 @@ class ABRAdapter:
                                 current["business_names"].append(business_name)
             except Exception as exc:
                 logger.warning("ABR public search failed for one term (%s): %s", term, exc)
-                self.last_warnings.append(f"ABR search for '{term}' failed: {exc}")
+                issue = describe_provider_exception("jev", exc, partial=completed_queries > 0)
+                self.last_warnings.append(
+                    f"ABR search for '{term}' failed: {issue['message']} {issue['next_step']}"
+                )
 
         if not completed_queries:
             raise RuntimeError("All ABR public search queries failed.")

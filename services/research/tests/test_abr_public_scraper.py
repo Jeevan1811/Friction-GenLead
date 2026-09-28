@@ -80,6 +80,29 @@ def test_postcode_match_allows_abrs_suburb_and_state_text():
     assert results[0]["postcode"] == "4000"
 
 
+def test_valve_focused_qld_search_uses_target_sector_terms(monkeypatch):
+    adapter = ABRAdapter(crawler=_FakeCrawler(""))
+    observed: list[str] = []
+
+    async def search_term(_postcode: str, term: str):
+        observed.append(term)
+        return [], False
+
+    monkeypatch.setattr(adapter, "_search_term", search_term)
+    asyncio.run(adapter.search_by_postcode("4740", "Valve-focused"))
+
+    assert observed == [
+        "engineering",
+        "boiler",
+        "steam",
+        "food processing",
+        "food manufacturing",
+        "water authority",
+        "water treatment",
+        "industrial maintenance",
+    ]
+
+
 def test_public_search_reports_abrs_truncated_result_notice():
     html = f"""
     <p>Your search was stopped before all matching names could be retrieved.</p>

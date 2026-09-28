@@ -31,8 +31,9 @@ def test_research_route_starts_without_returning_demo_claims(monkeypatch):
     async def fake_start_research(**kwargs):
         assert kwargs == {
             "location": "Perth, Western Australia, Australia",
-            "industry": None,
+            "industry": "Valve-focused",
             "target_roles": ["Site Manager"],
+            "max_companies": 80,
         }
         return SimpleNamespace(
             job_id="job-public-scrape",
@@ -47,7 +48,12 @@ def test_research_route_starts_without_returning_demo_claims(monkeypatch):
     with TestClient(app, raise_server_exceptions=False) as client:
         search = client.post(
             "/internal/ops/research",
-            json={"location": "Perth, Western Australia, Australia", "roles": ["Site Manager"]},
+            json={
+                "location": "Perth, Western Australia, Australia",
+                "industry": "Valve-focused",
+                "roles": ["Site Manager"],
+                "max_companies": 80,
+            },
         )
         discover = client.post("/internal/discover", json={"postcode": "4740"})
         verify = client.post("/internal/verify/company", json={"companyId": "cmp-1", "abn": "12345678901"})

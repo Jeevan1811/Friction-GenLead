@@ -4,6 +4,8 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from app.models.enums import SyncState
 from app.routers import data
 from app.routers import operations
@@ -17,11 +19,83 @@ def test_research_request_accepts_a_worldwide_location():
         location="Vancouver, British Columbia, Canada",
         industry="Mining",
         roles=["Operations Manager"],
+        max_companies=100,
     )
 
     assert request.location == "Vancouver, British Columbia, Canada"
     assert request.industry == "Mining"
     assert request.roles == ["Operations Manager"]
+    assert request.max_companies == 100
+    assert StartResearchRequest(location="Mackay, Queensland").max_companies == 30
+
+
+@pytest.mark.parametrize("count", [9, 101])
+def test_research_request_rejects_counts_outside_the_supported_range(count):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        StartResearchRequest(location="Mackay, Queensland", max_companies=count)
+
+
+@pytest.mark.parametrize(("target", "expected"), [(10, 10), (100, 100)])
+def test_discovery_writes_no_more_than_the_selected_company_target(target, expected):
+    candidates = [
+        {
+            "provider_id": f"overture:target-{index}",
+            "name": f"Industrial Prospect {index}",
+            "source": "OVERTURE_MAPS",
+            "source_provenance": {"provider": "Overture Maps Places"},
+        }
+        for index in range(105)
+    ]
+
+    class PublicPlaces:
+        last_warnings: list[str] = []
+
+        async def search(self, _location: str, _industry: str | None = None):
+            return candidates
+
+    class LiveSheets:
+        is_live = True
+
+        def __init__(self):
+            self.companies: list[dict] = []
+
+        async def read_companies(self):
+            return []
+
+        async def read_rejected(self):
+            return []
+
+        def tab_read_error(self, _tab: str):
+            return None
+
+        async def upsert_company(self, row):
+            self.companies.append(row)
+            return SyncState.SYNCED
+
+        async def upsert_location(self, _row):
+            return SyncState.SYNCED
+
+    sheets = LiveSheets()
+    job = ResearchJob(
+        job_id=f"selected-target-{target}",
+        postcode="",
+        location_query="Gladstone, Queensland, Australia",
+        industry="Valve-focused",
+        target_roles=[],
+        max_companies=target,
+        steps=[PipelineStep(name="discover")],
+    )
+
+    asyncio.run(
+        Jev(sheets=sheets, places=PublicPlaces())._step_discover_public_sources(job)
+    )
+
+    assert job.steps[0].status.value == "completed"
+    assert len(job.companies_found) == expected
+    assert len(sheets.companies) == expected
+    assert any("selected limit" in warning.casefold() for warning in job.warnings)
 
 
 def test_production_research_pipeline_wires_web_search_alongside_overture():

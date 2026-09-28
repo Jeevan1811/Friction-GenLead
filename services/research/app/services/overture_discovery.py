@@ -63,7 +63,36 @@ INDUSTRY_CATEGORIES: dict[str, tuple[str, ...]] = {
         "industrial_equipment_manufacturer", "manufacturer", "factory", "industrial_company",
         "chemical_plant", "food_manufacturer", "metal_fabricator", "supplier",
     ),
+    "engineering & industrial services": (
+        "engineering_service", "b2b_industrial_and_machine_service",
+        "manufacturing_and_industrial_consultant", "industrial_company",
+        "industrial_equipment_manufacturer",
+    ),
+    "steam & boiler operations": (
+        "machinery_and_tool_manufacturer", "industrial_equipment_manufacturer",
+        "b2b_power_plants_and_power_plant_service", "chemical_plant",
+        "commercial_industrial", "industrial_facility_or_service",
+    ),
+    "food & beverage processing": (
+        "b2b_food_products", "food_beverage_distributor", "industrial_company",
+        "commercial_industrial",
+    ),
+    "water utilities & authorities": (
+        "water_utility_provider", "b2b_water_treatment_service", "public_utility",
+        "water_softening_equipment_supplier", "water_purification_service",
+    ),
 }
+VALVE_FOCUSED_INDUSTRIES = (
+    "engineering & industrial services",
+    "steam & boiler operations",
+    "food & beverage processing",
+    "water utilities & authorities",
+)
+INDUSTRY_CATEGORIES["valve-focused"] = tuple(dict.fromkeys(
+    category
+    for industry in VALVE_FOCUSED_INDUSTRIES
+    for category in INDUSTRY_CATEGORIES[industry]
+))
 ALL_BUSINESS_CATEGORIES = tuple(dict.fromkeys(
     category for categories in INDUSTRY_CATEGORIES.values() for category in categories
 ))

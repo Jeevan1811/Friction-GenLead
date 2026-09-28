@@ -37,6 +37,21 @@ INDUSTRY_SEARCH_TERMS: dict[str, list[str]] = {
     "construction": ["construction", "civil", "contracting"],
     "transport": ["transport", "logistics", "freight", "haulage"],
     "manufacturing": ["manufacturing", "fabrication", "engineering", "industrial"],
+    "valve-focused": [
+        "engineering", "boiler", "steam", "food processing",
+        "food manufacturing", "water authority", "water treatment",
+        "industrial maintenance",
+    ],
+    "engineering & industrial services": [
+        "engineering", "industrial", "fabrication", "maintenance",
+    ],
+    "steam & boiler operations": ["boiler", "steam", "boiler service", "power plant"],
+    "food & beverage processing": [
+        "food processing", "food manufacturing", "dairy", "abattoir",
+    ],
+    "water utilities & authorities": [
+        "water authority", "water utility", "water treatment", "sewerage",
+    ],
 }
 DEFAULT_SEARCH_TERMS = [
     "mining", "quarry", "energy", "manufacturing", "construction", "transport"

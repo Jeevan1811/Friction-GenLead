@@ -1,5 +1,14 @@
 # Friction GenLead Worklog
 
+## 2026-09-29 — structured API and search events (local only)
+
+- Truth: **IMPLEMENTED LOCALLY; BACKEND TESTS PASS; NOT DEPLOYED**. Private-only MSV GenLead. Worktree `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-job-stability`, branch `codex/genlead-structured-observability`, base `origin/main` commit `5ed3b2bb2551fa3115523a38252831a76e839cd3`. Uncommitted changes only.
+- Added a safe JSON event helper with explicit UTC timestamps, stable event/severity/category fields, exception class (not message/traceback), optional provider/route template, correlation ID, source/result counts, and Sheets sync state. Instrumented request failures, search acceptance and completion, partial/total provider failures, pipeline terminal outcomes, cancellation, and Sheets persistence failures. Search terms, concrete request paths, prospect/contact details, and raw exception content are not fields in the new events.
+- Tests: event test module **7 passed**; full research backend suite **181 passed**; `git diff --check` passed. Ruff unavailable (`No module named ruff`).
+- Context: prior sanitized monitoring showed provider rate-limit/runtime/search error categories, but PM2 lines lacked timestamps. A bounded sanitized scan at `2026-09-29T10:19:28Z` found both services online, one new API stdout line with no recognized error signature, and no other appended error-stream lines. No stuck job or failed Sheet write was established.
+- No urgent production defect is confirmed, so the observability-only change was not deployed or restarted under the user's conditional authorization. No VPS mutation, Sheets access/write, production search, secret-file access, or unrelated process action. The hourly monitor remains read-only. Existing non-search loggers and persisted job error/warning text were not comprehensively sanitized; don't represent this scoped change as complete system-wide log hardening.
+- Next: if deployment is requested, review this diff and use the normal scoped release path; after rollout, verify JSON UTC events with a read-only health check and let the hourly monitor compare sanitized events against its cursor. Do not create a production search solely to generate test logs.
+
 ## 2026-09-29 — research job stalls, recovery, and deployment
 
 - Truth: **DEPLOYED; LOCAL + VPS BUILD AND LOCAL/READ-ONLY BROWSER QA PASSED**. PR #26 (`0c8778c`) implemented the fix; PR #27 corrected production TypeScript scope after the first VPS build caught Playwright-only files in the app typecheck. Final production commit `b47e853f8089c5c07553388d31af489596d169e7`. Private-only MSV GenLead, branch/worktree `codex/genlead-job-stability`; other worktrees were untouched.

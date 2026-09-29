@@ -91,6 +91,8 @@ const SECONDARY_ROLES = [
   "HR Manager",
 ];
 
+const ACTIVE_RESEARCH_JOB_KEY = "genlead.activeResearchJobId";
+
 export default function SearchPage() {
   const [location, setLocation] = useState("");
   const [industry, setIndustry] = useState(DEFAULT_SEARCH_SECTOR);
@@ -98,7 +100,9 @@ export default function SearchPage() {
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [locationError, setLocationError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [restoringJob, setRestoringJob] = useState(true);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeJobBusy, setActiveJobBusy] = useState(false);
   const [researchResults, setResearchResults] = useState<{
     jobId: string;
     companies: ResearchCompanyResult[];
@@ -108,6 +112,20 @@ export default function SearchPage() {
   const [searchRunsLoading, setSearchRunsLoading] = useState(true);
   const [searchRunsError, setSearchRunsError] = useState<string | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    try {
+      const savedJobId = window.sessionStorage.getItem(ACTIVE_RESEARCH_JOB_KEY);
+      if (savedJobId) {
+        setActiveJobId(savedJobId);
+        setActiveJobBusy(true);
+      }
+    } catch {
+      // Storage may be disabled; the current page can still track this run.
+    } finally {
+      setRestoringJob(false);
+    }
+  }, []);
 
   const loadSearchRuns = useCallback(async (initial = false) => {
       if (initial) setSearchRunsLoading(true);
@@ -470,11 +488,11 @@ export default function SearchPage() {
 
         {/* Submit */}
         <button
-          disabled={!canSubmit || submitting}
+          disabled={!canSubmit || submitting || activeJobBusy || restoringJob}
           className="btn-primary"
           style={{ width: "calc(100% - 48px)", margin: "0 24px 24px" }}
           onClick={async () => {
-            if (!canSubmit || submitting) return;
+            if (!canSubmit || submitting || activeJobBusy || restoringJob) return;
             setSubmitting(true);
             setResearchResults(null);
             try {
@@ -485,7 +503,13 @@ export default function SearchPage() {
                 companyLimit,
               );
               toast(`Research started for ${location.trim()}`, "success");
+              try {
+                window.sessionStorage.setItem(ACTIVE_RESEARCH_JOB_KEY, res.job_id);
+              } catch {
+                // Tracking continues in this page even when session storage is unavailable.
+              }
               setActiveJobId(res.job_id);
+              setActiveJobBusy(true);
             } catch (err) {
               const msg =
                 err instanceof Error ? err.message : "Failed to start research";
@@ -503,7 +527,13 @@ export default function SearchPage() {
           ) : (
             <Zap size={16} />
           )}
-          {submitting ? "Starting..." : "Search public sources"}
+          {restoringJob
+            ? "Checking active search..."
+            : submitting
+              ? "Starting..."
+            : activeJobBusy
+              ? "Search in progress..."
+              : "Search public sources"}
         </button>
       </div>
 
@@ -533,6 +563,27 @@ export default function SearchPage() {
                   "error"
                 );
               });
+          }}
+          onTerminal={(data) => {
+            setActiveJobBusy(false);
+            try {
+              window.sessionStorage.removeItem(ACTIVE_RESEARCH_JOB_KEY);
+            } catch {
+              // The run is terminal even if browser storage is unavailable.
+            }
+            void loadSearchRuns();
+            if (data.status !== "completed" && data.errors?.[0]) {
+              toast(data.errors[0], "error");
+            }
+          }}
+          onMonitoringStopped={() => {
+            setActiveJobBusy(false);
+            try {
+              window.sessionStorage.removeItem(ACTIVE_RESEARCH_JOB_KEY);
+            } catch {
+              // Monitoring state is local even if storage is unavailable.
+            }
+            void loadSearchRuns();
           }}
         />
       )}

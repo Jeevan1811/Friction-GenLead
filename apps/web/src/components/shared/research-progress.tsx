@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Search,
   ShieldCheck,
@@ -12,7 +12,13 @@ import {
   Circle,
   Building2,
 } from "lucide-react";
-import { getResearchStatus } from "@/lib/api";
+import { ApiRequestError, getResearchStatus } from "@/lib/api";
+import {
+  advanceResearchPollState,
+  createResearchPollState,
+  RESEARCH_POLL_INTERVAL_MS,
+  stopResearchPollState,
+} from "@/lib/research-polling.mjs";
 
 interface ResearchStep {
   name: string;
@@ -28,11 +34,14 @@ interface ResearchStatusData {
   contacts_found: number;
   steps: ResearchStep[];
   warnings: string[];
+  errors?: string[];
 }
 
 interface ResearchProgressProps {
   jobId: string;
   onComplete: (data: ResearchStatusData) => void;
+  onTerminal?: (data: ResearchStatusData) => void;
+  onMonitoringStopped?: () => void;
 }
 
 const STEP_META: Record<
@@ -126,59 +135,108 @@ function StepIcon({ status }: { status: string }) {
   );
 }
 
-export function ResearchProgress({ jobId, onComplete }: ResearchProgressProps) {
+export function ResearchProgress({
+  jobId,
+  onComplete,
+  onTerminal,
+  onMonitoringStopped,
+}: ResearchProgressProps) {
   const [data, setData] = useState<ResearchStatusData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [monitoringStopped, setMonitoringStopped] = useState(false);
+  const retryNowRef = useRef<(() => void) | null>(null);
   const onCompleteRef = useRef(onComplete);
+  const onTerminalRef = useRef(onTerminal);
+  const onMonitoringStoppedRef = useRef(onMonitoringStopped);
   onCompleteRef.current = onComplete;
-
-  const stopPolling = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  }, []);
+  onTerminalRef.current = onTerminal;
+  onMonitoringStoppedRef.current = onMonitoringStopped;
 
   useEffect(() => {
     let active = true;
+    let inFlight = false;
+    let completionNotified = false;
+    let pollState = createResearchPollState();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let requestController: AbortController | null = null;
+    setData(null);
+    setError(null);
+    setMonitoringStopped(false);
+
+    const schedule = (delayMs: number) => {
+      if (!active || pollState.terminal) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => void poll(), delayMs);
+    };
 
     const poll = async () => {
+      if (!active || inFlight || pollState.terminal) return;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      inFlight = true;
+      requestController = new AbortController();
+      setChecking(true);
       try {
-        const res = await getResearchStatus(jobId);
+        const res = await getResearchStatus(jobId, requestController.signal);
         if (!active) return;
         setData(res);
         setError(null);
+        pollState = advanceResearchPollState(pollState, {
+          type: "status",
+          status: res.status,
+        });
 
-        if (
-          res.status === "completed" ||
-          res.status === "failed" ||
-          res.status === "cancelled"
-        ) {
-          stopPolling();
-          if (res.status === "completed") {
+        if (pollState.terminal) {
+          onTerminalRef.current?.(res);
+          if (res.status === "completed" && !completionNotified) {
+            completionNotified = true;
             onCompleteRef.current(res);
           }
+        } else {
+          schedule(RESEARCH_POLL_INTERVAL_MS);
         }
       } catch (err) {
         if (!active) return;
+        if (err instanceof ApiRequestError && err.status === 404) {
+          pollState = stopResearchPollState(pollState);
+          setMonitoringStopped(true);
+          setError(
+            `${err.message} This search is no longer available. Check Recent Searches and Companies before starting a replacement.`
+          );
+          onMonitoringStoppedRef.current?.();
+          return;
+        }
+        pollState = advanceResearchPollState(pollState, { type: "error" });
+        const message = err instanceof Error ? err.message : "Could not refresh search progress.";
         setError(
-          err instanceof Error ? err.message : "Failed to fetch status"
+          `${message} Keeping the last progress and retrying in ${Math.ceil(pollState.delayMs / 1000)} seconds.`
         );
+        schedule(pollState.delayMs);
+      } finally {
+        inFlight = false;
+        requestController = null;
+        if (active) setChecking(false);
       }
     };
 
-    /* Initial fetch */
-    poll();
-
-    /* Poll every 3 seconds */
-    intervalRef.current = setInterval(poll, 3000);
+    retryNowRef.current = () => {
+      if (inFlight || pollState.terminal) return;
+      if (timer) clearTimeout(timer);
+      timer = null;
+      void poll();
+    };
+    void poll();
 
     return () => {
       active = false;
-      stopPolling();
+      if (timer) clearTimeout(timer);
+      requestController?.abort();
+      retryNowRef.current = null;
     };
-  }, [jobId, stopPolling]);
+  }, [jobId]);
 
   const steps = data?.steps ?? DEFAULT_STEPS.map((name) => ({
     name,
@@ -223,7 +281,7 @@ export function ResearchProgress({ jobId, onComplete }: ResearchProgressProps) {
             Job {jobId.slice(0, 8)}...
           </div>
         </div>
-        {data?.status && (
+        {(data?.status || monitoringStopped) && (
           <span
             style={{
               fontSize: "11px",
@@ -231,22 +289,22 @@ export function ResearchProgress({ jobId, onComplete }: ResearchProgressProps) {
               padding: "3px 10px",
               borderRadius: "var(--radius-pill)",
               background:
-                data.status === "completed"
+                data?.status === "completed"
                   ? "#F0FDF4"
-                  : data.status === "failed"
+                  : data?.status === "failed"
                     ? "#FFFBEB"
                     : "var(--color-accent-light)",
               color:
-                data.status === "completed"
+                data?.status === "completed"
                   ? "#166534"
-                  : data.status === "failed"
+                  : data?.status === "failed"
                     ? "#92400E"
                     : "var(--color-accent)",
               textTransform: "uppercase",
               letterSpacing: "0.04em",
             }}
           >
-            {data.status}
+            {monitoringStopped ? "monitoring paused" : data?.status}
           </span>
         )}
       </div>
@@ -461,19 +519,53 @@ export function ResearchProgress({ jobId, onComplete }: ResearchProgressProps) {
       )}
 
       {/* Error */}
-      {error && (
+      {data?.errors?.map((message, index) => (
         <div
+          key={`${data.job_id}-error-${index}`}
+          role="status"
           style={{
             marginTop: "16px",
             padding: "10px 12px",
             borderRadius: "var(--radius-sm)",
-            background: "#FEF2F2",
-            border: "1px solid #FECACA",
+            background: "#FFFBEB",
+            border: "1px solid #FDE68A",
             fontSize: "12px",
-            color: "#991B1B",
+            color: "#92400E",
           }}
         >
-          {error}
+          {message}
+        </div>
+      ))}
+
+      {error && (
+        <div
+          role="status"
+          style={{
+            marginTop: "16px",
+            padding: "10px 12px",
+            borderRadius: "var(--radius-sm)",
+            background: "#FFFBEB",
+            border: "1px solid #FDE68A",
+            fontSize: "12px",
+            color: "#92400E",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+          }}
+        >
+          <span>{error}</span>
+          {!monitoringStopped && (
+            <button
+              type="button"
+              onClick={() => retryNowRef.current?.()}
+              disabled={checking}
+              className="btn-secondary"
+              style={{ minHeight: 32, flexShrink: 0 }}
+            >
+              {checking ? "Checking…" : "Retry now"}
+            </button>
+          )}
         </div>
       )}
     </div>

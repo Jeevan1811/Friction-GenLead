@@ -1,0 +1,254 @@
+import { expect, test, type Page, type Route } from "@playwright/test";
+import { SignJWT } from "jose";
+
+const appUrl = "http://127.0.0.1:3127";
+const testSecret = "local-playwright-only-secret-not-for-any-environment";
+const testJobId = "e2e-search-job-001";
+
+async function addLocalSession(page: Page) {
+  const token = await new SignJWT({ authenticated: true, email: "qa@example.invalid" })
+    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+    .setIssuedAt()
+    .setExpirationTime("1h")
+    .sign(new TextEncoder().encode(testSecret));
+  await page.context().addCookies([
+    {
+      name: "pi_session",
+      value: token,
+      url: appUrl,
+      httpOnly: true,
+      sameSite: "Lax",
+    },
+  ]);
+}
+
+function runningStatus() {
+  return {
+    job_id: testJobId,
+    location: "Mackay, Queensland",
+    postcode: "",
+    industry: "Valve-focused",
+    status: "running",
+    companies_found: 0,
+    contacts_found: 0,
+    steps: [
+      { name: "discover", status: "running", result: null, error: null },
+      { name: "verify", status: "pending", result: null, error: null },
+      { name: "research_contacts", status: "pending", result: null, error: null },
+      { name: "evaluate", status: "pending", result: null, error: null },
+    ],
+    warnings: [],
+    errors: [],
+  };
+}
+
+function completedStatus() {
+  return {
+    ...runningStatus(),
+    status: "completed",
+    steps: runningStatus().steps.map((step) => ({ ...step, status: "completed" })),
+  };
+}
+
+async function fulfillJson(route: Route, body: unknown, status = 200) {
+  await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+}
+
+async function fillLocationAndStart(page: Page) {
+  await page.getByLabel(/city, region, country or postcode/i).fill("Mackay, Queensland");
+  await page.getByRole("button", { name: "Search public sources" }).click();
+}
+
+test.beforeEach(async ({ page }) => {
+  await addLocalSession(page);
+});
+
+test("a slow status timeout stays understandable, retries once at a time, and completes", async ({ page }) => {
+  let statusReads = 0;
+  let activeStatusReads = 0;
+  let maxConcurrentStatusReads = 0;
+  const uncaughtPageErrors: string[] = [];
+  page.on("pageerror", (error) => uncaughtPageErrors.push(error.message));
+
+  await page.route("**/internal/**", async (route) => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+
+    if (url.pathname === "/internal/ops/jobs") return fulfillJson(route, []);
+    if (url.pathname === "/internal/data/sync-status") {
+      return fulfillJson(route, {
+        connected: true,
+        mode: "live",
+        spreadsheetId: "synthetic-read-only-fixture",
+        companiesCount: 0,
+        locationsCount: 0,
+        contactsCount: 0,
+        rejectionsCount: 0,
+        syncLogEntries: 0,
+        lastSync: null,
+        state: "SYNCED",
+      });
+    }
+    if (url.pathname === "/internal/ops/research" && method === "POST") {
+      return fulfillJson(route, { job_id: testJobId, status: "running", message: "Started" });
+    }
+    if (url.pathname === `/internal/ops/research/${testJobId}/results`) {
+      return fulfillJson(route, {
+        job_id: testJobId,
+        location: "Mackay, Queensland",
+        status: "completed",
+        companies: [],
+        contacts: [],
+        warnings: [],
+        errors: [],
+      });
+    }
+    if (url.pathname === `/internal/ops/research/${testJobId}` && method === "GET") {
+      statusReads += 1;
+      activeStatusReads += 1;
+      maxConcurrentStatusReads = Math.max(maxConcurrentStatusReads, activeStatusReads);
+      try {
+        if (statusReads === 1) {
+          return route.fulfill({ status: 504, body: "" });
+        }
+        return fulfillJson(route, statusReads >= 3 ? completedStatus() : runningStatus());
+      } finally {
+        activeStatusReads -= 1;
+      }
+    }
+    return fulfillJson(route, {});
+  });
+
+  await page.goto("/search");
+  await fillLocationAndStart(page);
+  await expect(page.getByRole("button", { name: "Search in progress..." })).toBeDisabled();
+  await expect(page.getByText(/search service took too long to respond/i)).toBeVisible({ timeout: 10_000 });
+  await page.getByRole("button", { name: "Retry now" }).click();
+  await expect(page.getByText(/search service took too long to respond/i)).toHaveCount(0);
+  await expect.poll(() => statusReads, { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+  await expect(page.getByText("No new matches were added.", { exact: false })).toBeVisible({ timeout: 10_000 });
+
+  expect(maxConcurrentStatusReads).toBe(1);
+  expect(uncaughtPageErrors).toEqual([]);
+});
+
+test("a status request slower than the old poll interval never overlaps", async ({ page }) => {
+  let statusReads = 0;
+  let activeStatusReads = 0;
+  let maxConcurrentStatusReads = 0;
+
+  await page.route("**/internal/**", async (route) => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+    if (url.pathname === "/internal/ops/jobs") return fulfillJson(route, []);
+    if (url.pathname === "/internal/data/sync-status") return fulfillJson(route, {});
+    if (url.pathname === "/internal/ops/research" && method === "POST") {
+      return fulfillJson(route, { job_id: testJobId, status: "running", message: "Started" });
+    }
+    if (url.pathname === `/internal/ops/research/${testJobId}`) {
+      statusReads += 1;
+      activeStatusReads += 1;
+      maxConcurrentStatusReads = Math.max(maxConcurrentStatusReads, activeStatusReads);
+      try {
+        if (statusReads === 1) await new Promise((resolve) => setTimeout(resolve, 3200));
+        return fulfillJson(route, runningStatus());
+      } finally {
+        activeStatusReads -= 1;
+      }
+    }
+    return fulfillJson(route, {});
+  });
+
+  await page.goto("/search");
+  await fillLocationAndStart(page);
+  await expect.poll(() => statusReads, { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+  expect(maxConcurrentStatusReads).toBe(1);
+});
+
+test("an active search resumes after reload and blocks duplicate searches", async ({ page }) => {
+  let startRequests = 0;
+  let statusReads = 0;
+
+  await page.route("**/internal/**", async (route) => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+    if (url.pathname === "/internal/ops/jobs") return fulfillJson(route, []);
+    if (url.pathname === "/internal/data/sync-status") return fulfillJson(route, {});
+    if (url.pathname === "/internal/ops/research" && method === "POST") {
+      startRequests += 1;
+      return fulfillJson(route, { job_id: testJobId, status: "running", message: "Started" });
+    }
+    if (url.pathname === `/internal/ops/research/${testJobId}`) {
+      statusReads += 1;
+      return fulfillJson(route, runningStatus());
+    }
+    return fulfillJson(route, {});
+  });
+
+  await page.goto("/search");
+  await fillLocationAndStart(page);
+  await expect.poll(() => statusReads).toBeGreaterThan(0);
+  await expect(page.getByRole("button", { name: "Search in progress..." })).toBeDisabled();
+
+  await page.reload();
+  await expect.poll(() => statusReads).toBeGreaterThan(1);
+  await page.getByLabel(/city, region, country or postcode/i).fill("Rockhampton, Queensland");
+  await expect(page.getByRole("button", { name: "Search in progress..." })).toBeDisabled();
+  expect(startRequests).toBe(1);
+});
+
+test("a recovered interrupted job explains what happened and releases the search form", async ({ page }) => {
+  await page.route("**/internal/**", async (route) => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+    if (url.pathname === "/internal/ops/jobs") return fulfillJson(route, []);
+    if (url.pathname === "/internal/data/sync-status") return fulfillJson(route, {});
+    if (url.pathname === "/internal/ops/research" && method === "POST") {
+      return fulfillJson(route, { job_id: testJobId, status: "running", message: "Started" });
+    }
+    if (url.pathname === `/internal/ops/research/${testJobId}`) {
+      return fulfillJson(route, {
+        ...runningStatus(),
+        status: "interrupted",
+        errors: [
+          "The server restarted while this search was running. Companies already saved remain available; review Companies before starting a replacement search.",
+        ],
+      });
+    }
+    return fulfillJson(route, {});
+  });
+
+  await page.goto("/search");
+  await fillLocationAndStart(page);
+  const recoveryNotice = page
+    .getByRole("main")
+    .locator("div[role='status']")
+    .filter({ hasText: /server restarted while this search was running/i });
+  await expect(recoveryNotice).toBeVisible();
+  await expect(page.getByRole("button", { name: "Search public sources" })).toBeEnabled();
+});
+
+test("a missing job stops futile retries and explains the safe next step", async ({ page }) => {
+  let statusReads = 0;
+  await page.route("**/internal/**", async (route) => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+    if (url.pathname === "/internal/ops/jobs") return fulfillJson(route, []);
+    if (url.pathname === "/internal/data/sync-status") return fulfillJson(route, {});
+    if (url.pathname === "/internal/ops/research" && method === "POST") {
+      return fulfillJson(route, { job_id: testJobId, status: "running", message: "Started" });
+    }
+    if (url.pathname === `/internal/ops/research/${testJobId}`) {
+      statusReads += 1;
+      return fulfillJson(route, { detail: "Job not found" }, 404);
+    }
+    return fulfillJson(route, {});
+  });
+
+  await page.goto("/search");
+  await fillLocationAndStart(page);
+  await expect(page.getByText(/this search is no longer available/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Search public sources" })).toBeEnabled();
+  await page.waitForTimeout(3200);
+  expect(statusReads).toBe(1);
+});

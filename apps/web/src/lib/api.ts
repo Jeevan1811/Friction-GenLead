@@ -16,6 +16,13 @@ import {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
 /**
  * Friendly, human-readable messages for common HTTP statuses, used as a
  * fallback when the backend didn't send a usable error message of its own.
@@ -30,6 +37,7 @@ const STATUS_FALLBACK: Record<number, string> = {
   500: "Something went wrong on the server. Please try again in a moment.",
   502: "The server is temporarily unavailable. Please try again shortly.",
   503: "The service is temporarily unavailable. Please try again shortly.",
+  504: "The search service took too long to respond. Your last progress is kept and status checks will retry; check Recent Searches before starting a duplicate.",
 };
 
 /**
@@ -60,21 +68,41 @@ async function extractErrorMessage(res: Response): Promise<string> {
   );
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
+export async function apiGet<T>(
+  path: string,
+  options: { timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<T> {
   // credentials: "include" is required here -- API_BASE is a separate
   // origin from the Next.js app (a different port locally, and possibly a
   // different origin in production too depending on the reverse-proxy
   // setup), and the FastAPI backend's require_auth reads the session JWT
   // from a cookie. Without this, the browser silently drops that cookie
   // on the cross-origin request and every call 401s even when logged in.
-  const res = await fetch(`${API_BASE}${path}`, {
-    credentials: "include",
-    // These authenticated reads reflect live Sheet-backed data and must not
-    // be served from a browser's stale HTTP cache after a Sheet edit/deploy.
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(await extractErrorMessage(res));
-  return res.json();
+  const controller = options.timeoutMs ? new AbortController() : undefined;
+  const timeout = options.timeoutMs
+    ? setTimeout(() => controller?.abort(), options.timeoutMs)
+    : undefined;
+  const signal = controller && options.signal
+    ? AbortSignal.any([controller.signal, options.signal])
+    : controller?.signal ?? options.signal;
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      credentials: "include",
+      // These authenticated reads reflect live Sheet-backed data and must not
+      // be served from a browser's stale HTTP cache after a Sheet edit/deploy.
+      cache: "no-store",
+      signal,
+    });
+    if (!res.ok) throw new ApiRequestError(await extractErrorMessage(res), res.status);
+    return await res.json();
+  } catch (error) {
+    if (controller?.signal.aborted) {
+      throw new Error("Progress check timed out. The search may still be running; keeping the last status and retrying.");
+    }
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
@@ -84,7 +112,7 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(await extractErrorMessage(res));
+  if (!res.ok) throw new ApiRequestError(await extractErrorMessage(res), res.status);
   return res.json();
 }
 
@@ -102,7 +130,7 @@ export async function startResearch(
   );
 }
 
-export async function getResearchStatus(jobId: string) {
+export async function getResearchStatus(jobId: string, signal?: AbortSignal) {
   return apiGet<{
     job_id: string;
     location: string;
@@ -117,7 +145,11 @@ export async function getResearchStatus(jobId: string) {
       error: string | null;
     }>;
     warnings: string[];
-  }>(`/internal/ops/research/${jobId}`);
+    errors: string[];
+  }>(`/internal/ops/research/${encodeURIComponent(jobId)}`, {
+    timeoutMs: 20_000,
+    signal,
+  });
 }
 
 export async function getResearchResults(jobId: string) {

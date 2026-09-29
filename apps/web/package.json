@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test:unit": "node --test --test-concurrency=1 tests/*.test.mjs",
+    "test:e2e": "node scripts/run-playwright.mjs",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },
@@ -23,6 +25,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^8.0.2",

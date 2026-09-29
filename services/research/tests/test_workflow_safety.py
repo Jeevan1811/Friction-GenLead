@@ -409,6 +409,101 @@ def test_search_run_summary_survives_service_object_recreation():
     assert restored[0].details_available is False
 
 
+def test_get_job_recovers_persisted_running_run_as_interrupted():
+    row = {
+        "job_id": "interrupted-after-process-restart",
+        "postcode": "4740",
+        "location_query": "Mackay, Queensland",
+        "industry": "Valve-focused",
+        "status": "running",
+        "created_at": "2026-09-29T00:00:00+00:00",
+        "updated_at": "2026-09-29T00:01:00+00:00",
+        "companies_found": "3",
+        "contacts_found": "0",
+    }
+
+    class PersistedRuns:
+        async def read_search_runs(self):
+            return [row]
+
+    recovered = asyncio.run(Jev(sheets=PersistedRuns()).get_job(row["job_id"]))
+
+    assert recovered is not None
+    assert recovered.status == "interrupted"
+    assert recovered.companies_count == 3
+    assert any("server restarted" in message.lower() for message in recovered.errors)
+
+
+def test_unexpected_background_task_exit_is_saved_as_a_terminal_failure():
+    async def scenario():
+        job = ResearchJob(
+            job_id="unexpected-task-exit",
+            postcode="4740",
+            industry=None,
+            target_roles=[],
+        )
+        service = Jev()
+        from app.services import jev as jev_module
+
+        jev_module._jobs[job.job_id] = job
+        failed_task = asyncio.get_running_loop().create_future()
+        failed_task.set_exception(RuntimeError("synthetic hidden detail"))
+        service._background_tasks[job.job_id] = failed_task
+        service._on_background_task_done(job.job_id, failed_task)
+        await asyncio.sleep(0)
+
+        assert job.status == "failed"
+        assert any("stopped unexpectedly" in message.lower() for message in job.errors)
+        for task in service._background_tasks.values():
+            task.cancel()
+        if service._background_tasks:
+            await asyncio.gather(*service._background_tasks.values(), return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
+def test_public_job_errors_explain_known_failures_without_forwarding_raw_details():
+    messages = operations._public_job_errors([
+        "Pipeline error: HTTP 401 rejected credential=synthetic-secret-value",
+        "The server restarted while this search was running. Companies already saved remain available.",
+    ])
+
+    assert any("denied access" in message.lower() for message in messages)
+    assert any("server restarted" in message.lower() for message in messages)
+    assert "synthetic-secret-value" not in " ".join(messages)
+
+
+def test_start_research_returns_while_initial_sheet_persistence_is_slow():
+    async def scenario():
+        release_write = asyncio.Event()
+        write_started = asyncio.Event()
+
+        class SlowSheets:
+            is_live = True
+
+            async def upsert_search_run(self, _run):
+                write_started.set()
+                await release_write.wait()
+                return SyncState.SYNCED
+
+        service = Jev(sheets=SlowSheets())
+        try:
+            job = await asyncio.wait_for(
+                service.start_research("Mackay, Queensland", "Valve-focused"),
+                timeout=0.1,
+            )
+            assert job.status == "running"
+            await asyncio.wait_for(write_started.wait(), timeout=0.1)
+        finally:
+            release_write.set()
+            for task in getattr(service, "_background_tasks", {}).values():
+                task.cancel()
+            if getattr(service, "_background_tasks", {}):
+                await asyncio.gather(*service._background_tasks.values(), return_exceptions=True)
+
+    asyncio.run(scenario())
+
+
 def test_saved_company_ids_recover_run_details_when_legacy_flag_is_false():
     row = {
         "job_id": "persisted-run-recovery-after-restart",

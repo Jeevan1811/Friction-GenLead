@@ -1,13 +1,13 @@
 # Friction GenLead Worklog
 
-## 2026-09-29 — structured API and search events (local only)
+## 2026-09-29 — structured API and search events deployed
 
-- Truth: **IMPLEMENTED LOCALLY; BACKEND TESTS PASS; NOT DEPLOYED**. Private-only MSV GenLead. Worktree `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-job-stability`, branch `codex/genlead-structured-observability`, base `origin/main` commit `5ed3b2bb2551fa3115523a38252831a76e839cd3`. Uncommitted changes only.
+- Truth: **PR #29 MERGED AND API DEPLOYED; HEALTH CHECK PASSED**. Private-only MSV GenLead. Source commit `f968c5d` merged as `2882591fed25a3168a65d8ab46007dd2e15c1816`; branch `codex/genlead-structured-observability`.
 - Added a safe JSON event helper with explicit UTC timestamps, stable event/severity/category fields, exception class (not message/traceback), optional provider/route template, correlation ID, source/result counts, and Sheets sync state. Instrumented request failures, search acceptance and completion, partial/total provider failures, pipeline terminal outcomes, cancellation, and Sheets persistence failures. Search terms, concrete request paths, prospect/contact details, and raw exception content are not fields in the new events.
-- Tests: event test module **7 passed**; full research backend suite **181 passed**; `git diff --check` passed. Ruff unavailable (`No module named ruff`).
-- Context: prior sanitized monitoring showed provider rate-limit/runtime/search error categories, but PM2 lines lacked timestamps. A bounded sanitized scan at `2026-09-29T10:19:28Z` found both services online, one new API stdout line with no recognized error signature, and no other appended error-stream lines. No stuck job or failed Sheet write was established.
-- No urgent production defect is confirmed, so the observability-only change was not deployed or restarted under the user's conditional authorization. No VPS mutation, Sheets access/write, production search, secret-file access, or unrelated process action. The hourly monitor remains read-only. Existing non-search loggers and persisted job error/warning text were not comprehensively sanitized; don't represent this scoped change as complete system-wide log hardening.
-- Next: if deployment is requested, review this diff and use the normal scoped release path; after rollout, verify JSON UTC events with a read-only health check and let the hourly monitor compare sanitized events against its cursor. Do not create a production search solely to generate test logs.
+- Tests: event test module **7 passed**; full research backend suite **181 passed**; `git diff --check` passed. Ruff unavailable (`No module named ruff`). GitHub reported no branch checks. Guarded Claude review was blocked by organization subscription access; no independent review is claimed.
+- Deployment: VPS fast-forwarded `b47e853` → `2882591`; only `frictiongenlead-api` restarted. Both GenLead PM2 processes remained online. API loopback `/internal/health` returned HTTP 200 with `status: ok`; web was not restarted.
+- Post-deploy sanitized logs: one API stderr line matched numeric `535` since the previous cursor, among eight appended lines. It had no recognized exception class, SMTP marker, or event timestamp; its source is unclassified, not confirmed SMTP, and cannot be attributed to the release. Monitor cursor updated through `2026-09-29T10:34:09Z` without retaining raw logs.
+- Safety: no production search, Sheet access/write, `.env`/credential access, SMTP change, or unrelated PM2 service action. New event JSON was not forced in production; observe it on the next natural event. Existing non-search loggers and persisted warnings/errors remain outside this instrumentation scope; it is not full-system log sanitization or automatic repair.
 
 ## 2026-09-29 — research job stalls, recovery, and deployment
 

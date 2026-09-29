@@ -48,6 +48,28 @@ class JobSummary(BaseModel):
     contacts_found: int
     steps: list[dict]
     warnings: list[str]
+    errors: list[str]
+
+
+def _public_job_errors(errors: list[str]) -> list[str]:
+    """Keep useful run guidance while withholding raw provider/exception text."""
+    public: list[str] = []
+    for error in errors:
+        normalized = str(error).strip()
+        lowered = normalized.casefold()
+        if "server restarted while this search was running" in lowered:
+            public.append(normalized)
+        elif "could not start because its initial status was not saved" in lowered:
+            public.append(
+                "Search could not start because its status was not saved to Google Sheets. "
+                "No research was run; check Sheet sync and retry."
+            )
+        elif lowered.startswith("pipeline error:"):
+            issue = describe_provider_exception("jev", RuntimeError(normalized.partition(":")[2].strip()))
+            public.append(f"{issue['message']} {issue['next_step']}")
+        else:
+            public.append(normalized)
+    return public
 
 
 @router.get("/provider-status")
@@ -144,6 +166,7 @@ async def get_research_status(job_id: str) -> JobSummary:
             for s in job.steps
         ],
         warnings=job.warnings,
+        errors=_public_job_errors(job.errors),
     )
 
 
@@ -177,7 +200,7 @@ async def get_research_results(job_id: str) -> dict:
         "companies": job.companies_found,
         "contacts": job.contacts_found,
         "warnings": job.warnings,
-        "errors": job.errors,
+        "errors": _public_job_errors(job.errors),
     }
 
 
@@ -197,7 +220,7 @@ async def list_jobs() -> list[dict]:
             "created_at": j.created_at.isoformat(),
             "updated_at": j.updated_at.isoformat(),
             "roles": j.target_roles,
-            "error_summary": "; ".join(j.errors),
+            "error_summary": "; ".join(_public_job_errors(j.errors)),
         }
         for j in jobs
     ]

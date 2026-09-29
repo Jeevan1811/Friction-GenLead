@@ -120,6 +120,7 @@ class Jev:
         self.web_search = web_search
         self.resolver = EntityResolver()
         self.sheets = sheets
+        self._background_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def start_research(
         self,
@@ -153,11 +154,63 @@ class Jev:
         )
         _jobs[job.job_id] = job
 
-        await self._persist_job(job)
-
-        # Run pipeline in background
-        asyncio.create_task(self._run_pipeline(job))
+        # Return the job ID before the first Sheets round-trip. The task first
+        # persists the initial state, then starts research, so the browser can
+        # begin polling immediately even if Google Sheets is slow.
+        task = asyncio.create_task(
+            self._persist_then_run(job),
+            name=f"jev-research-{job.job_id}",
+        )
+        self._background_tasks[job.job_id] = task
+        task.add_done_callback(
+            lambda completed, current_job_id=job.job_id: self._on_background_task_done(
+                current_job_id, completed
+            )
+        )
         return job
+
+    async def _persist_then_run(self, job: ResearchJob) -> None:
+        try:
+            await self._persist_job(job)
+        except Exception:
+            logger.exception("Unable to persist initial state for search %s", job.job_id)
+            job.status = "failed"
+            job.errors.append(
+                "The search could not start because its initial status was not saved. No research was run."
+            )
+            return
+        await self._run_pipeline(job)
+
+    def _on_background_task_done(
+        self, job_id: str, task: asyncio.Task[None]
+    ) -> None:
+        self._background_tasks.pop(job_id, None)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error:
+            logger.error(
+                "Background research task %s exited unexpectedly",
+                job_id,
+                exc_info=(type(error), error, error.__traceback__),
+            )
+            job = _jobs.get(job_id)
+            if job and job.status == "running":
+                job.status = "failed"
+                job.errors.append(
+                    "This search stopped unexpectedly. Any companies already saved remain in Companies; "
+                    "review them before starting a replacement search."
+                )
+                persistence = asyncio.create_task(
+                    self._persist_job(job),
+                    name=f"jev-failure-save-{job_id}",
+                )
+                self._background_tasks[job_id] = persistence
+                persistence.add_done_callback(
+                    lambda completed, current_job_id=job_id: self._on_background_task_done(
+                        current_job_id, completed
+                    )
+                )
 
     async def get_job(self, job_id: str) -> ResearchJob | None:
         current = _jobs.get(job_id)
@@ -167,7 +220,7 @@ class Jev:
             rows = await self.sheets.read_search_runs()
             row = next((r for r in rows if str(r.get("job_id")) == job_id), None)
             if row:
-                return self._job_from_run_row(row)
+                return self._recover_interrupted_job(self._job_from_run_row(row))
         return None
 
     async def get_job_results(self, job: ResearchJob) -> ResearchJob:
@@ -205,13 +258,26 @@ class Jev:
                 for row in await self.sheets.read_search_runs():
                     job = self._job_from_run_row(row)
                     if job.job_id:
-                        if job.status == "running" and job.job_id not in _jobs:
-                            job.status = "interrupted"
+                        if job.job_id not in _jobs:
+                            job = self._recover_interrupted_job(job)
                         persisted[job.job_id] = job
             except Exception:
                 logger.exception("Unable to load persisted research history")
         persisted.update(_jobs)
         return sorted(persisted.values(), key=lambda j: j.created_at, reverse=True)
+
+    @staticmethod
+    def _recover_interrupted_job(job: ResearchJob) -> ResearchJob:
+        """Avoid presenting a process-local in-flight status after restart."""
+        if job.status == "running":
+            job.status = "interrupted"
+            explanation = (
+                "The server restarted while this search was running. Companies already saved "
+                "remain available; review Companies before starting a replacement search."
+            )
+            if explanation not in job.errors:
+                job.errors.append(explanation)
+        return job
 
     async def cancel_job(self, job_id: str) -> bool:
         job = _jobs.get(job_id)

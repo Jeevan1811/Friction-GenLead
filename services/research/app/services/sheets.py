@@ -30,12 +30,14 @@ the full stack run without a service account during development.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
 from ..models.enums import SyncState
@@ -154,6 +156,11 @@ class GoogleSheetsAdapter:
     _connected: bool = False
     _mock_mode: bool = True
     _service: Any = None  # google-api-python-client service object
+    # The google-api-python-client service is shared by async request handlers.
+    # Keep its synchronous transport calls serialized, but move them off the
+    # event-loop thread so one slow Sheets response cannot stall every route.
+    _google_io_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _tab_write_locks: dict[str, asyncio.Lock] = field(default_factory=dict, repr=False)
 
     # In-memory stores for mock mode.
     _companies: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -368,6 +375,15 @@ class GoogleSheetsAdapter:
                 "GoogleSheetsAdapter is not connected. Call connect() first."
             )
 
+    async def _execute_google(self, operation: Callable[[], Any]) -> Any:
+        """Run one synchronous Google API request without blocking asyncio."""
+        return await asyncio.to_thread(self._execute_google_sync, operation)
+
+    def _execute_google_sync(self, operation: Callable[[], Any]) -> Any:
+        """Serialize access to the shared Google API transport in a worker."""
+        with self._google_io_lock:
+            return operation()
+
     async def _ensure_tabs_exist(self) -> None:
         """Create missing tabs and append newly required headers safely.
 
@@ -379,8 +395,8 @@ class GoogleSheetsAdapter:
             return
 
         try:
-            sheet_metadata = (
-                self._service.spreadsheets()
+            sheet_metadata = await self._execute_google(
+                lambda: self._service.spreadsheets()
                 .get(spreadsheetId=self.spreadsheet_id)
                 .execute()
             )
@@ -401,27 +417,33 @@ class GoogleSheetsAdapter:
                     })
 
             if requests:
-                self._service.spreadsheets().batchUpdate(
-                    spreadsheetId=self.spreadsheet_id,
-                    body={"requests": requests},
-                ).execute()
+                await self._execute_google(
+                    lambda: self._service.spreadsheets().batchUpdate(
+                        spreadsheetId=self.spreadsheet_id,
+                        body={"requests": requests},
+                    ).execute()
+                )
 
             # Append missing headers without replacing existing labels/order.
             for tab_key, tab_config in SPREADSHEET_TABS.items():
                 tab_name = tab_config["name"]
-                result = self._service.spreadsheets().values().get(
-                    spreadsheetId=self.spreadsheet_id,
-                    range=f"{tab_name}!A1:ZZ1",
-                ).execute()
+                result = await self._execute_google(
+                    lambda: self._service.spreadsheets().values().get(
+                        spreadsheetId=self.spreadsheet_id,
+                        range=f"{tab_name}!A1:ZZ1",
+                    ).execute()
+                )
                 values = result.get("values", [])
                 headers = [str(value).strip() for value in values[0]] if values else []
                 if not headers:
-                    self._service.spreadsheets().values().update(
-                        spreadsheetId=self.spreadsheet_id,
-                        range=f"{tab_name}!A1",
-                        valueInputOption="RAW",
-                        body={"values": [tab_config["columns"]]},
-                    ).execute()
+                    await self._execute_google(
+                        lambda: self._service.spreadsheets().values().update(
+                            spreadsheetId=self.spreadsheet_id,
+                            range=f"{tab_name}!A1",
+                            valueInputOption="RAW",
+                            body={"values": [tab_config["columns"]]},
+                        ).execute()
+                    )
                     continue
 
                 existing = {_normalize_header(header) for header in headers}
@@ -431,12 +453,14 @@ class GoogleSheetsAdapter:
                 ]
                 if missing:
                     start = _column_letter(len(headers))
-                    self._service.spreadsheets().values().update(
-                        spreadsheetId=self.spreadsheet_id,
-                        range=f"{tab_name}!{start}1",
-                        valueInputOption="RAW",
-                        body={"values": [missing]},
-                    ).execute()
+                    await self._execute_google(
+                        lambda: self._service.spreadsheets().values().update(
+                            spreadsheetId=self.spreadsheet_id,
+                            range=f"{tab_name}!{start}1",
+                            valueInputOption="RAW",
+                            body={"values": [missing]},
+                        ).execute()
+                    )
                     logger.info("Appended %d schema columns to %s", len(missing), tab_name)
 
             self._invalidate_tab_cache()
@@ -643,13 +667,15 @@ class GoogleSheetsAdapter:
                         value = json.dumps(value, default=str, ensure_ascii=False)
                     row.append("" if value is None else str(value))
                 rows.append(row)
-            self._service.spreadsheets().values().append(
-                spreadsheetId=self.spreadsheet_id,
-                range=f"{tab_name}!A:A",
-                valueInputOption="RAW",
-                insertDataOption="INSERT_ROWS",
-                body={"values": rows},
-            ).execute()
+            await self._execute_google(
+                lambda: self._service.spreadsheets().values().append(
+                    spreadsheetId=self.spreadsheet_id,
+                    range=f"{tab_name}!A:A",
+                    valueInputOption="RAW",
+                    insertDataOption="INSERT_ROWS",
+                    body={"values": rows},
+                ).execute()
+            )
         self._invalidate_tab_cache("source_records")
         return len(pending), len(by_id) - len(pending)
 
@@ -683,10 +709,12 @@ class GoogleSheetsAdapter:
 
     async def _read_tab_headers(self, tab_key: str) -> list[str]:
         tab_name = SPREADSHEET_TABS[tab_key]["name"]
-        result = self._service.spreadsheets().values().get(
-            spreadsheetId=self.spreadsheet_id,
-            range=f"{tab_name}!A1:ZZ1",
-        ).execute()
+        result = await self._execute_google(
+            lambda: self._service.spreadsheets().values().get(
+                spreadsheetId=self.spreadsheet_id,
+                range=f"{tab_name}!A1:ZZ1",
+            ).execute()
+        )
         values = result.get("values", [])
         return [str(value).strip() for value in values[0]] if values else []
 
@@ -708,8 +736,8 @@ class GoogleSheetsAdapter:
         tab_name = tab_config["name"]
 
         try:
-            result = (
-                self._service.spreadsheets()
+            result = await self._execute_google(
+                lambda: self._service.spreadsheets()
                 .values()
                 .get(
                     spreadsheetId=self.spreadsheet_id,
@@ -770,7 +798,7 @@ class GoogleSheetsAdapter:
 
                 # Log to sync log.
                 operation = "update" if existing else "insert"
-                self._log_sync(
+                await self._log_sync(
                     entity_type="company",
                     entity_id=company_id,
                     operation=operation,
@@ -811,7 +839,7 @@ class GoogleSheetsAdapter:
                 self._locations[location_id] = location
 
                 operation = "update" if existing else "insert"
-                self._log_sync(
+                await self._log_sync(
                     entity_type="location",
                     entity_id=location_id,
                     operation=operation,
@@ -852,7 +880,7 @@ class GoogleSheetsAdapter:
                 self._contacts[contact_id] = contact
 
                 operation = "update" if existing else "insert"
-                self._log_sync(
+                await self._log_sync(
                     entity_type="contact",
                     entity_id=contact_id,
                     operation=operation,
@@ -910,13 +938,15 @@ class GoogleSheetsAdapter:
             columns = SPREADSHEET_TABS["rejected"]["columns"]
             row = [str(rejection.get(col, "")) for col in columns]
 
-            self._service.spreadsheets().values().append(
-                spreadsheetId=self.spreadsheet_id,
-                range=f"{tab_name}!A:A",
-                valueInputOption="RAW",
-                insertDataOption="INSERT_ROWS",
-                body={"values": [row]},
-            ).execute()
+            await self._execute_google(
+                lambda: self._service.spreadsheets().values().append(
+                    spreadsheetId=self.spreadsheet_id,
+                    range=f"{tab_name}!A:A",
+                    valueInputOption="RAW",
+                    insertDataOption="INSERT_ROWS",
+                    body={"values": [row]},
+                ).execute()
+            )
 
             self._invalidate_tab_cache("rejected")
             return SyncState.SYNCED
@@ -955,7 +985,7 @@ class GoogleSheetsAdapter:
                     min(i + BATCH_CHUNK_SIZE, len(companies)),
                     len(companies),
                 )
-                time.sleep(0.5)
+                await asyncio.sleep(0.5)
 
         logger.info(
             "Batch upsert complete: %d companies processed.", len(companies)
@@ -977,7 +1007,7 @@ class GoogleSheetsAdapter:
                 results[lid] = state
 
             if i + BATCH_CHUNK_SIZE < len(locations):
-                time.sleep(0.5)
+                await asyncio.sleep(0.5)
 
         return results
 
@@ -996,7 +1026,7 @@ class GoogleSheetsAdapter:
                 results[cid] = state
 
             if i + BATCH_CHUNK_SIZE < len(contacts):
-                time.sleep(0.5)
+                await asyncio.sleep(0.5)
 
         return results
 
@@ -1004,7 +1034,7 @@ class GoogleSheetsAdapter:
     # Sync tracking
     # ------------------------------------------------------------------
 
-    def _log_sync(
+    async def _log_sync(
         self,
         entity_type: str,
         entity_id: str,
@@ -1042,13 +1072,15 @@ class GoogleSheetsAdapter:
                     json.dumps(entry.old_values, default=str),
                     json.dumps(entry.new_values, default=str),
                 ]
-                self._service.spreadsheets().values().append(
-                    spreadsheetId=self.spreadsheet_id,
-                    range=f"{tab_name}!A:A",
-                    valueInputOption="RAW",
-                    insertDataOption="INSERT_ROWS",
-                    body={"values": [row]},
-                ).execute()
+                await self._execute_google(
+                    lambda: self._service.spreadsheets().values().append(
+                        spreadsheetId=self.spreadsheet_id,
+                        range=f"{tab_name}!A:A",
+                        valueInputOption="RAW",
+                        insertDataOption="INSERT_ROWS",
+                        body={"values": [row]},
+                    ).execute()
+                )
             except Exception:
                 logger.exception("Failed to write sync log entry")
 
@@ -1108,6 +1140,20 @@ class GoogleSheetsAdapter:
     # ------------------------------------------------------------------
 
     async def _write_row_with_retry(
+        self,
+        tab_key: str,
+        row_id: str,
+        row_data: dict[str, Any],
+        id_column: str,
+    ) -> SyncState:
+        """Serialize read/merge/write operations per tab to avoid lost updates."""
+        lock = self._tab_write_locks.setdefault(tab_key, asyncio.Lock())
+        async with lock:
+            return await self._write_row_with_retry_unlocked(
+                tab_key, row_id, row_data, id_column
+            )
+
+    async def _write_row_with_retry_unlocked(
         self,
         tab_key: str,
         row_id: str,
@@ -1197,30 +1243,34 @@ class GoogleSheetsAdapter:
                             f"{tab_name}!{_column_letter(first)}{existing_row_num}:"
                             f"{_column_letter(last)}{existing_row_num}"
                         )
-                        self._service.spreadsheets().values().update(
-                            spreadsheetId=self.spreadsheet_id,
-                            range=row_range,
-                            valueInputOption="RAW",
-                            body={"values": [[value for _, value in group]]},
-                        ).execute()
+                        await self._execute_google(
+                            lambda: self._service.spreadsheets().values().update(
+                                spreadsheetId=self.spreadsheet_id,
+                                range=row_range,
+                                valueInputOption="RAW",
+                                body={"values": [[value for _, value in group]]},
+                            ).execute()
+                        )
                     operation = "update"
                 else:
                     for index, value in selected.items():
                         row_values[index] = value
                     # Append new row.
-                    self._service.spreadsheets().values().append(
-                        spreadsheetId=self.spreadsheet_id,
-                        range=f"{tab_name}!A:A",
-                        valueInputOption="RAW",
-                        insertDataOption="INSERT_ROWS",
-                        body={"values": [row_values]},
-                    ).execute()
+                    await self._execute_google(
+                        lambda: self._service.spreadsheets().values().append(
+                            spreadsheetId=self.spreadsheet_id,
+                            range=f"{tab_name}!A:A",
+                            valueInputOption="RAW",
+                            insertDataOption="INSERT_ROWS",
+                            body={"values": [row_values]},
+                        ).execute()
+                    )
                     operation = "insert"
 
                 self._invalidate_tab_cache(tab_key)
 
                 # Log the sync operation.
-                self._log_sync(
+                await self._log_sync(
                     entity_type=tab_key,
                     entity_id=row_id,
                     operation=operation,
@@ -1244,7 +1294,7 @@ class GoogleSheetsAdapter:
                         MAX_RETRIES,
                         backoff,
                     )
-                    time.sleep(backoff)
+                    await asyncio.sleep(backoff)
                     continue
 
                 logger.exception(
@@ -1255,7 +1305,7 @@ class GoogleSheetsAdapter:
                 )
                 if attempt == MAX_RETRIES:
                     return SyncState.PENDING
-                time.sleep(BACKOFF_BASE_SECONDS)
+                await asyncio.sleep(BACKOFF_BASE_SECONDS)
 
         return SyncState.PENDING
 
@@ -1278,8 +1328,8 @@ class GoogleSheetsAdapter:
         col_idx = normalized_columns.index(normalized_id_column)
 
         try:
-            result = (
-                self._service.spreadsheets()
+            result = await self._execute_google(
+                lambda: self._service.spreadsheets()
                 .values()
                 .get(
                     spreadsheetId=self.spreadsheet_id,
@@ -1304,8 +1354,8 @@ class GoogleSheetsAdapter:
     ) -> dict[str, Any]:
         """Read a single row by its 1-based row number."""
         try:
-            result = (
-                self._service.spreadsheets()
+            result = await self._execute_google(
+                lambda: self._service.spreadsheets()
                 .values()
                 .get(
                     spreadsheetId=self.spreadsheet_id,

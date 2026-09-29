@@ -23,6 +23,7 @@ from enum import StrEnum
 from app.services.abr import ABRAdapter
 from app.services.crawler import WebsiteCrawler, SSRFError, CrawlLimitError
 from app.services.firecrawl_search import FirecrawlSearchDiscovery
+from app.services.event_logging import emit_event, exception_category
 from app.services.geo import postcode_centroid
 from app.services.overture_discovery import OverturePlacesDiscovery
 from app.services.provider_health import describe_provider_exception, provider_health
@@ -172,13 +173,27 @@ class Jev:
     async def _persist_then_run(self, job: ResearchJob) -> None:
         try:
             await self._persist_job(job)
-        except Exception:
-            logger.exception("Unable to persist initial state for search %s", job.job_id)
+        except Exception as exc:
+            emit_event(
+                logger,
+                event="search.start_persistence_failed",
+                category="sheets_write_failed",
+                level=logging.ERROR,
+                exception=exc,
+                correlation_id=job.job_id,
+            )
             job.status = "failed"
             job.errors.append(
                 "The search could not start because its initial status was not saved. No research was run."
             )
             return
+        emit_event(
+            logger,
+            event="search.started",
+            category="accepted",
+            level=logging.INFO,
+            correlation_id=job.job_id,
+        )
         await self._run_pipeline(job)
 
     def _on_background_task_done(
@@ -189,10 +204,13 @@ class Jev:
             return
         error = task.exception()
         if error:
-            logger.error(
-                "Background research task %s exited unexpectedly",
-                job_id,
-                exc_info=(type(error), error, error.__traceback__),
+            emit_event(
+                logger,
+                event="search.background_task_failed",
+                category=exception_category(error),
+                level=logging.ERROR,
+                exception=error,
+                correlation_id=job_id,
             )
             job = _jobs.get(job_id)
             if job and job.status == "running":
@@ -284,6 +302,13 @@ class Jev:
         if job and job.status == "running":
             job.status = "cancelled"
             await self._persist_job(job)
+            emit_event(
+                logger,
+                event="search.cancelled",
+                category="user_cancelled",
+                level=logging.INFO,
+                correlation_id=job.job_id,
+            )
             return True
         return False
 
@@ -371,7 +396,13 @@ class Jev:
             "details_saved": "true" if job.details_saved else "false",
         })
         if result.value != "SYNCED":
-            logger.warning("Research history for %s could not be persisted", job.job_id)
+            emit_event(
+                logger,
+                event="search.history_persistence_pending",
+                category="sheets_write_pending",
+                level=logging.WARNING,
+                correlation_id=job.job_id,
+            )
 
     async def _run_pipeline(self, job: ResearchJob) -> None:
         """Execute the full research pipeline."""
@@ -383,6 +414,14 @@ class Jev:
                 job.status = "failed"
                 job.errors.append(
                     "Company discovery did not complete; subsequent research steps were skipped."
+                )
+                emit_event(
+                    logger,
+                    event="search.pipeline_failed",
+                    category="discovery_incomplete",
+                    level=logging.ERROR,
+                    correlation_id=job.job_id,
+                    outcome="failed",
                 )
                 await self._persist_job(job)
                 return
@@ -402,8 +441,39 @@ class Jev:
 
             job.status = "completed"
             await self._persist_job(job)
+            try:
+                sheets_live = self.sheets.is_live if self.sheets is not None else None
+            except Exception:
+                sheets_live = None
+            if self.sheets is None:
+                sheets_sync = "not_configured"
+            elif sheets_live is None:
+                sheets_sync = "unknown"
+            elif not sheets_live:
+                sheets_sync = "mock"
+            else:
+                sheets_sync = "synced" if job.details_saved else "pending"
+            emit_event(
+                logger,
+                event="search.pipeline_completed",
+                category="success",
+                level=logging.INFO,
+                correlation_id=job.job_id,
+                outcome="completed",
+                companies_saved=len(job.companies_found),
+                contacts_saved=len(job.contacts_found),
+                sheets_sync=sheets_sync,
+            )
         except Exception as e:
             job.status = "failed"
+            emit_event(
+                logger,
+                event="search.pipeline_failed",
+                category=exception_category(e),
+                level=logging.ERROR,
+                exception=e,
+                correlation_id=job.job_id,
+            )
             job.errors.append(f"Pipeline error: {str(e)}")
             await self._persist_job(job)
 
@@ -623,9 +693,32 @@ class Jev:
             }
             step.status = StepStatus.COMPLETED
             step.completed_at = datetime.now(timezone.utc)
+            emit_event(
+                logger,
+                event="search.discovery_completed",
+                category="success",
+                level=logging.INFO,
+                provider="abr",
+                correlation_id=job.job_id,
+                sources_succeeded=1,
+                sources_failed=0,
+                candidates_found=len(job.companies_found),
+            )
 
         except Exception as e:
             step.status = StepStatus.NEEDS_REVIEW
+            emit_event(
+                logger,
+                event="search.discovery_failed",
+                category=exception_category(e, fallback="discovery_error"),
+                level=logging.ERROR,
+                provider="abr",
+                exception=e,
+                correlation_id=job.job_id,
+                outcome="all_sources_failed",
+                sources_succeeded=0,
+                sources_failed=1,
+            )
             issue = describe_provider_exception("jev", e)
             provider_health.record_issue("jev", issue)
             detail = f"{issue['message']} {issue['next_step']}"
@@ -638,13 +731,15 @@ class Jev:
         step.status = StepStatus.RUNNING
         step.started_at = datetime.now(timezone.utc)
         location_query = job.location_query or job.postcode
+        successful_sources = 0
+        source_failures: list[tuple[str, Exception]] = []
+        discovery_failure_emitted = False
 
         try:
             raw_results: list[dict] = []
             web_results: list[dict] = []
             source_errors: list[str] = []
             source_issues: list[dict[str, str]] = []
-            successful_sources = 0
 
             if re.fullmatch(r"4\d{3}", location_query):
                 try:
@@ -658,6 +753,7 @@ class Jev:
                 except Exception as exc:
                     issue = describe_provider_exception("jev", exc)
                     source_issues.append(issue)
+                    source_failures.append(("abr", exc))
                     source_errors.append(f"ABR postcode search failed. {issue['message']} {issue['next_step']}")
 
             if self.places is not None:
@@ -669,6 +765,7 @@ class Jev:
                 except Exception as exc:
                     issue = describe_provider_exception("jev", exc)
                     source_issues.append(issue)
+                    source_failures.append(("overture", exc))
                     source_errors.append(
                         f"Global public-place search failed. {issue['message']} {issue['next_step']}"
                     )
@@ -683,12 +780,32 @@ class Jev:
                         )
                     successful_sources += 1
                 except Exception as exc:
-                    logger.warning("Public web search failed: %s", type(exc).__name__)
                     issue = describe_provider_exception("jev", exc)
                     source_issues.append(issue)
+                    source_failures.append(("firecrawl", exc))
                     source_errors.append(
                         "Public web search failed; other successful sources were retained. "
                         f"{issue['message']} {issue['next_step']}"
+                    )
+
+            if source_failures:
+                failure_outcome = (
+                    "all_sources_failed"
+                    if successful_sources == 0
+                    else "partial_source_failure"
+                )
+                for provider, source_exception in source_failures:
+                    emit_event(
+                        logger,
+                        event="search.source_failed",
+                        category=exception_category(source_exception, fallback="provider_error"),
+                        level=logging.WARNING,
+                        provider=provider,
+                        exception=source_exception,
+                        correlation_id=job.job_id,
+                        outcome=failure_outcome,
+                        sources_succeeded=successful_sources,
+                        sources_failed=len(source_failures),
                     )
 
             if successful_sources == 0:
@@ -696,6 +813,18 @@ class Jev:
                     "jev", RuntimeError("no research source completed")
                 )
                 provider_health.record_issue("jev", issue)
+                emit_event(
+                    logger,
+                    event="search.discovery_sources_exhausted",
+                    category="all_sources_failed" if source_failures else "no_sources_configured",
+                    level=logging.ERROR,
+                    exception=source_failures[0][1] if source_failures else None,
+                    correlation_id=job.job_id,
+                    outcome="failed",
+                    sources_succeeded=0,
+                    sources_failed=len(source_failures),
+                )
+                discovery_failure_emitted = True
                 raise RuntimeError("; ".join(source_errors) or issue["message"])
 
             if source_issues:
@@ -706,6 +835,18 @@ class Jev:
             raw_results = _blend_public_source_candidates(raw_results, web_results)
             job.warnings.extend(source_errors)
             if not raw_results and source_errors:
+                emit_event(
+                    logger,
+                    event="search.discovery_returned_no_candidates",
+                    category="no_candidates_after_partial_failure",
+                    level=logging.ERROR,
+                    correlation_id=job.job_id,
+                    outcome="failed",
+                    sources_succeeded=successful_sources,
+                    sources_failed=len(source_failures),
+                    candidates_found=0,
+                )
+                discovery_failure_emitted = True
                 raise RuntimeError("No public discovery source completed successfully: " + "; ".join(source_errors))
 
             existing_rows: list[dict] = []
@@ -1006,8 +1147,30 @@ class Jev:
             }
             step.status = StepStatus.COMPLETED
             step.completed_at = datetime.now(timezone.utc)
+            emit_event(
+                logger,
+                event="search.discovery_completed",
+                category="success_with_source_warnings" if source_failures else "success",
+                level=logging.INFO,
+                correlation_id=job.job_id,
+                outcome="partial" if source_failures else "complete",
+                sources_succeeded=successful_sources,
+                sources_failed=len(source_failures),
+                candidates_found=len(job.companies_found),
+            )
         except Exception as exc:
             step.status = StepStatus.NEEDS_REVIEW
+            if not discovery_failure_emitted:
+                emit_event(
+                    logger,
+                    event="search.discovery_step_failed",
+                    category=exception_category(exc, fallback="discovery_error"),
+                    level=logging.ERROR,
+                    exception=exc,
+                    correlation_id=job.job_id,
+                    sources_succeeded=successful_sources,
+                    sources_failed=len(source_failures),
+                )
             step.error = str(exc)
             job.warnings.append(f"Discovery had issues: {exc}. Manual review needed.")
 

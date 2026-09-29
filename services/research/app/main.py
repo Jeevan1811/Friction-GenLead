@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 load_dotenv()
 
 from .routers import chat, data, discovery, health, import_router, operations
+from .services.event_logging import emit_event
 from .services.sheets_instance import sheets_adapter
 
 logger = logging.getLogger(__name__)
@@ -38,11 +39,13 @@ async def lifespan(app: FastAPI):
             oauth_client_secret_path=os.getenv("GOOGLE_OAUTH_CLIENT_SECRET_PATH") or None,
             oauth_token_path=os.getenv("GOOGLE_OAUTH_TOKEN_PATH") or None,
         )
-    except Exception:
-        logger.exception(
-            "GoogleSheetsAdapter.connect() raised unexpectedly at startup; "
-            "continuing without it. Sheet writes will fail gracefully to "
-            "PENDING wherever they are attempted."
+    except Exception as exc:
+        emit_event(
+            logger,
+            event="startup.sheets_connect_failed",
+            category="sheets_connection_error",
+            level=logging.ERROR,
+            exception=exc,
         )
 
     # Also expose it on app.state for anything that prefers request-scoped
@@ -98,9 +101,10 @@ app.include_router(data.router)
 # message (stack trace, DB error, file path, connection string, etc.) to the
 # client. FastAPI/Starlette's own default already avoids this in production,
 # but we make it an explicit, guaranteed contract rather than relying on that
-# implicit default: every unhandled exception is logged in full server-side
-# with a correlation id, and the client only ever sees a generic message plus
-# that id (for support/debugging), never the exception's actual text.
+# implicit default: every unhandled exception is recorded server-side as a
+# safe structured event with a timestamp, route template, exception class, and
+# correlation id. Raw exception text and concrete request paths are excluded;
+# the client only sees a generic message plus the correlation id.
 #
 # Deliberately-raised HTTPException calls elsewhere in the app (e.g.
 # `raise HTTPException(401, "Not authenticated")`) are unaffected by this --
@@ -111,11 +115,18 @@ app.include_router(data.router)
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     request_id = str(uuid.uuid4())
-    logger.exception(
-        "Unhandled exception on %s %s [request_id=%s]",
-        request.method,
-        request.url.path,
-        request_id,
+    route = request.scope.get("route")
+    route_template = getattr(route, "path", None)
+    emit_event(
+        logger,
+        event="http.request_failed",
+        category="unhandled_exception",
+        level=logging.ERROR,
+        exception=exc,
+        correlation_id=request_id,
+        route=route_template if isinstance(route_template, str) else None,
+        method=request.method,
+        http_status=500,
     )
     return JSONResponse(
         status_code=500,

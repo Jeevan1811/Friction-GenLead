@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { LayoutGrid, List, Search } from "lucide-react";
 import { getLocations, getCompanies } from "@/lib/api";
 import type { Location, Company } from "@/lib/types";
+import { companyDisplayName } from "@/lib/company-display";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { GlobeView } from "@/components/shared/globe-view";
 import { InfoPopover } from "@/components/shared/info-popover";
@@ -98,6 +99,7 @@ export default function LocationsPage() {
           loc.rawPostcode,
           company?.companyName,
           company?.tradingName,
+          company?.abn,
         ].some((value) => String(value ?? "").toLowerCase().includes(q));
       }
       return true;
@@ -267,7 +269,7 @@ export default function LocationsPage() {
                 type="button"
                 className="surface-card location-card-button"
                 disabled={!company}
-                aria-label={company ? `Open ${company.tradingName || company.companyName} details` : undefined}
+                aria-label={company ? `Open ${companyDisplayName(company)} details` : undefined}
                 title={company ? "Open company details" : "No company record is linked to this location"}
                 onClick={() => company && router.push(`/companies?companyId=${encodeURIComponent(company.companyId)}`)}
                 style={{
@@ -279,11 +281,9 @@ export default function LocationsPage() {
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "8px", marginBottom: "8px" }}>
                   <div>
                     <div style={{ fontSize: "13px", fontWeight: 500, color: "var(--color-text)" }}>
-                      {loc.siteName}
+                      {company ? companyDisplayName(company) : loc.siteName || 'Company record unavailable'}
                     </div>
-                    <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", marginTop: "2px" }}>
-                      {company?.tradingName || company?.companyName || "Unknown"}
-                    </div>
+                    {loc.siteName && loc.siteName !== companyDisplayName(company) && <div style={{ fontSize: "12px", color: "var(--color-text-secondary)", marginTop: "2px" }}>{loc.siteName}</div>}
                   </div>
                   <StatusBadge status={loc.locationType} />
                 </div>
@@ -346,13 +346,13 @@ export default function LocationsPage() {
                   >
                     <td style={{ padding: "12px 16px", fontWeight: 500 }}>
                       {company ? (
-                        <Link href={`/companies?companyId=${encodeURIComponent(company.companyId)}`} aria-label={`Open ${company.tradingName || company.companyName} details`} style={{ color: "inherit", textDecoration: "none" }}>
+                        <Link href={`/companies?companyId=${encodeURIComponent(company.companyId)}`} aria-label={`Open ${companyDisplayName(company)} details`} style={{ color: "inherit", textDecoration: "none" }}>
                           {loc.siteName}
                         </Link>
                       ) : loc.siteName}
                     </td>
                     <td style={{ padding: "12px 16px", color: "var(--color-text-secondary)" }}>
-                      {company?.tradingName || company?.companyName || "--"}
+                      {companyDisplayName(company)}
                     </td>
                     <td style={{ padding: "12px 16px" }}>
                       <StatusBadge status={loc.locationType} />

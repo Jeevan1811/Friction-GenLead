@@ -160,8 +160,11 @@ test('a 28-company point opens every company with source filters, search and pag
   await panel.getByRole('searchbox',{name:'Search companies in map group',exact:true}).fill('28');
   await expect(panel.locator('article')).toHaveCount(1);
   await expect(panel.getByText('Approximate postcode centre',{exact:true})).toBeVisible();
+  const panelBox = (await panel.boundingBox())!;
+  expect(panelBox.y).toBe(0);
+  expect(panelBox.height).toBe(600);
   expect(await panel.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
-  await page.screenshot({path:testInfo.outputPath('cluster-company-browser-phone.png'),fullPage:true});
+  await page.screenshot({path:testInfo.outputPath('cluster-company-browser-phone.png'),fullPage:false,animations:'disabled'});
   await panel.getByRole('link',{name:'View company',exact:true}).click();
   await expect(page.getByRole('dialog',{name:'Engineering Company 28',exact:true})).toBeVisible();
 });

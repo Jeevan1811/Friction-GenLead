@@ -7,6 +7,7 @@ import { getProviderStatus, getSyncStatus } from "@/lib/api";
 import type { ProviderServiceStatus } from "@/lib/api";
 import type { SyncStatus } from "@/lib/types";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
+import { InfoPopover } from "@/components/shared/info-popover";
 
 export default function SettingsPage() {
   const { startDashboardTour } = useDashboardTour();
@@ -98,36 +99,20 @@ export default function SettingsPage() {
             <BookOpenText size={20} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "8px 12px" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "2px 8px" }}>
               <h2 id="dashboard-guide-title" style={{ fontSize: "18px", fontWeight: 600 }}>
                 Dashboard guide
               </h2>
+              <InfoPopover label="Dashboard guide" text="A read-only tour of the main screens. Start it here whenever you need a refresher; it does not change your data." />
               <span style={{ color: "var(--color-text-muted)", fontSize: "12px" }}>
                 {DASHBOARD_TOUR_STEPS.length} screens · about 3 minutes
               </span>
             </div>
-            <p style={{ color: "var(--color-text-secondary)", marginTop: "8px", maxWidth: "680px" }}>
-              A short, read-only tour of the main screens.
-            </p>
             <button
               type="button"
+              className="btn-primary"
               onClick={startDashboardTour}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "8px",
-                minHeight: "44px",
-                marginTop: "12px",
-                padding: "0 16px",
-                border: "1px solid var(--color-accent)",
-                borderRadius: "var(--radius-sm)",
-                background: "var(--color-accent)",
-                color: "var(--color-accent-text)",
-                font: "inherit",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
+              style={{ marginTop: "12px" }}
             >
               <Play size={15} fill="currentColor" />
               Start tour
@@ -161,38 +146,26 @@ export default function SettingsPage() {
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
-              <h2 id="provider-status-title" style={{ fontSize: "16px", fontWeight: 600 }}>
-                AI & research services
-              </h2>
+              <div style={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+                <h2 id="provider-status-title" style={{ fontSize: "16px", fontWeight: 600 }}>AI & research services</h2>
+                <InfoPopover label="AI and research services" text="Credential values stay private. Health is updated when a feature is used; Refresh only reads the latest status and does not send test requests." />
+              </div>
               <button
                 type="button"
+                className="btn-secondary"
                 onClick={() => void loadProviderStatus(true)}
                 disabled={providerLoading}
                 aria-label="Refresh AI and research service status"
                 title="Refresh status"
                 style={{
-                  minWidth: 40,
-                  minHeight: 40,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: "8px",
-                  border: "1px solid var(--color-border)",
-                  borderRadius: "var(--radius-sm)",
-                  color: "var(--color-text-secondary)",
-                  background: "var(--color-surface)",
-                  font: "inherit",
-                  cursor: providerLoading ? "wait" : "pointer",
+                  minWidth: 44,
+                  padding: "0 10px",
                 }}
               >
                 {providerLoading ? <LoaderCircle size={16} className="spin" /> : <RefreshCw size={16} />}
                 <span style={{ fontSize: "12px" }}>Refresh</span>
               </button>
             </div>
-            <p style={{ color: "var(--color-text-secondary)", marginTop: "6px", fontSize: "13px" }}>
-              Credential values stay private. Health updates after the features are used; this page does not send test requests.
-            </p>
-
             {providerError ? (
               <div role="alert" style={{ marginTop: "14px", padding: "12px", borderRadius: "var(--radius-sm)", background: "var(--color-accent-light)", color: "var(--color-error)" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
@@ -299,9 +272,10 @@ export default function SettingsPage() {
             <Table2 size={20} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <h2 id="sheet-status-title" style={{ fontSize: "16px", fontWeight: 600 }}>
-              Google Sheets data
-            </h2>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <h2 id="sheet-status-title" style={{ fontSize: "16px", fontWeight: 600 }}>Google Sheets data</h2>
+              <InfoPopover label="Google Sheets data" text="Sheet changes refresh automatically when the dashboard is open or revisited. Search imported workbook fields under Original data." />
+            </div>
             <div role="status" aria-live="polite" style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "10px" }}>
               {syncError ? (
                 <CircleAlert size={16} style={{ color: "var(--color-error)" }} />
@@ -324,9 +298,6 @@ export default function SettingsPage() {
                 <span><strong style={{ color: "var(--color-text)" }}>{(sync.sourceRecordsCount ?? 0).toLocaleString()}</strong> original source rows</span>
               </div>
             )}
-            <p style={{ color: "var(--color-text-muted)", marginTop: "12px", fontSize: "12px" }}>
-              Sheet changes refresh automatically. Original rows are under Original data.
-            </p>
           </div>
         </div>
       </section>

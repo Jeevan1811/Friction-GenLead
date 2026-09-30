@@ -63,6 +63,33 @@ test.beforeEach(async ({ page }) => {
   await addLocalSession(page);
 });
 
+test("Settings keeps service warnings visible and optional guidance on demand", async ({ page }) => {
+  await page.route("**/internal/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/internal/data/sync-status") return fulfillJson(route, {
+      connected: true, mode: "live", state: "SYNCED", companiesCount: 2,
+      locationsCount: 2, contactsCount: 0, activitiesCount: 0, searchRunsCount: 1,
+      sourceRecordsCount: 0,
+    });
+    if (path === "/internal/ops/provider-status") return fulfillJson(route, { services: [{
+      id: "chatbot", name: "Chatbot", provider: "Example provider", model: "Example model",
+      credential_status: "configured", state: "attention", message: "Service needs attention",
+      next_step: "Check provider billing", checked_at: null,
+    }] });
+    return fulfillJson(route, {});
+  });
+
+  await page.goto("/settings");
+  await expect(page.getByText("Service needs attention")).toBeVisible();
+  await expect(page.getByText("Check provider billing")).toBeVisible();
+  await expect(page.getByText("Credential values stay private.")).toHaveCount(0);
+  await page.getByRole("button", { name: "About AI and research services" }).click();
+  await expect(page.getByRole("dialog", { name: "About AI and research services" })).toContainText("Credential values stay private");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "About Dashboard guide" }).click();
+  await expect(page.getByRole("dialog", { name: "About Dashboard guide" })).toContainText("read-only tour");
+});
+
 test("search help is on demand and optional roles stay usable", async ({ page }) => {
   await page.route("**/internal/**", async (route) => {
     const path = new URL(route.request().url()).pathname;

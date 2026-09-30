@@ -9,6 +9,7 @@ import { getSourceRecordPresentation } from "@/lib/source-data-record.mjs";
 import { PageError, PageLoading } from "@/components/shared/page-status";
 import { Pager, PAGE_SIZE } from "@/components/shared/pager";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
+import { InfoPopover } from "@/components/shared/info-popover";
 
 export default function SourceDataPage() {
   const [query, setQuery] = useState("");
@@ -43,8 +44,10 @@ export default function SourceDataPage() {
   return (
     <div className="source-data-page">
       <header className="source-data-heading">
-        <h1 data-tour="source-data-overview">Original data</h1>
-        <p>Imported workbook rows</p>
+        <div className="genlead-page-heading">
+          <h1 data-tour="source-data-overview">Original data</h1>
+          <InfoPopover label="Original data" text="Search every imported workbook row, including fields not mapped to company, site or contact records. The original values are preserved." />
+        </div>
       </header>
 
       <section className="source-data-controls" aria-label="Search original data">

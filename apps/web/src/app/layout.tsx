@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 import "driver.js/dist/driver.css";
 
-const geist = Geist({
+const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
-  variable: "--font-geist",
+  variable: "--font-plex-sans",
+  weight: "variable",
 });
 
 export const metadata: Metadata = {
@@ -19,7 +20,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" data-theme="light" className={geist.variable}>
+    <html lang="en" data-theme="light" className={plexSans.variable}>
       <body style={{ fontFamily: "var(--font-sans)" }}>{children}</body>
     </html>
   );

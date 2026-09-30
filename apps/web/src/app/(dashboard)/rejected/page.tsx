@@ -6,6 +6,7 @@ import { getRejected } from "@/lib/api";
 import type { RejectedEntity } from "@/lib/types";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
+import { InfoPopover } from "@/components/shared/info-popover";
 
 const entityTypeIcons: Record<string, typeof Building2> = {
   company: Building2,
@@ -63,13 +64,11 @@ export default function RejectedPage() {
 
   return (
     <div style={{ padding: "24px", maxWidth: "800px" }}>
-      <div style={{ marginBottom: "24px" }}>
+      <div className="genlead-page-heading">
         <h1 data-tour="rejected-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
           Rejected
         </h1>
-        <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginTop: "4px" }}>
-          Entities you have rejected during review
-        </p>
+        <InfoPopover label="Rejected" text="Companies, sites and contacts you rejected during review. Reopen a record here if its status changes." />
       </div>
 
       {error && (

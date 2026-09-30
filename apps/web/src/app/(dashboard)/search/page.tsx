@@ -19,6 +19,7 @@ import { useToast } from "@/components/ui/toast";
 import { startResearch, getJobs, getResearchResults } from "@/lib/api";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { SampleDataNotice } from "@/components/shared/sample-data-notice";
+import { InfoPopover } from "@/components/shared/info-popover";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
 import { buildResearchRunCompaniesHref } from "@/lib/research-run-results";
 import {
@@ -261,7 +262,7 @@ export default function SearchPage() {
 
   return (
     <div style={{ padding: "24px", maxWidth: "800px" }}>
-      <div style={{ marginBottom: "24px" }}>
+      <div className="genlead-page-heading">
         <h1
           data-tour="search-overview"
           style={{
@@ -272,15 +273,7 @@ export default function SearchPage() {
         >
           Search Prospects
         </h1>
-        <p
-          style={{
-            fontSize: "13px",
-            color: "var(--color-text-secondary)",
-            marginTop: "4px",
-          }}
-        >
-          Find company candidates by place and sector.
-        </p>
+        <InfoPopover label="Search prospects" text="Choose an area and sector, then select how many new candidates to find. Saved companies in the area appear separately from new prospects." />
       </div>
 
       <SampleDataNotice />
@@ -302,20 +295,10 @@ export default function SearchPage() {
         >
           {/* Search location */}
           <div>
-            <label
-              htmlFor="location"
-              style={{
-                display: "block",
-                fontSize: "11px",
-                fontWeight: 500,
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-                color: "var(--color-text-muted)",
-                marginBottom: "6px",
-              }}
-            >
-              City, region, country or postcode
-            </label>
+            <div className="genlead-field-label">
+              <label htmlFor="location">City, region or postcode</label>
+              <InfoPopover label="Search area" text="Mapped places are searched within roughly 5 km of the area centre. Use a specific suburb or postcode for a tighter result." />
+            </div>
             <input
               id="location"
               type="text"
@@ -335,9 +318,6 @@ export default function SearchPage() {
                   : undefined,
               }}
             />
-            <p style={{ fontSize: "11px", color: "var(--color-text-muted)", marginTop: "4px" }}>
-              Searches mapped places within about 5 km of the place centre.
-            </p>
             {locationError && (
               <p
                 style={{
@@ -353,20 +333,10 @@ export default function SearchPage() {
 
           {/* Industry */}
           <div>
-            <label
-              htmlFor="industry"
-              style={{
-                display: "block",
-                fontSize: "11px",
-                fontWeight: 500,
-                textTransform: "uppercase",
-                letterSpacing: "0.04em",
-                color: "var(--color-text-muted)",
-                marginBottom: "6px",
-              }}
-            >
-              Target sector
-            </label>
+            <div className="genlead-field-label">
+              <label htmlFor="industry">Target sector</label>
+              <InfoPopover label="Target sector" text="Sector terms narrow mapped categories and public-web matches. Choose a valve-relevant sector to avoid unrelated shops." />
+            </div>
             <div style={{ position: "relative" }}>
               <select
                 id="industry"
@@ -408,19 +378,15 @@ export default function SearchPage() {
                 }}
               />
             </div>
-            <p style={{ fontSize: "11px", color: "var(--color-text-muted)", marginTop: "4px" }}>
-              {industry === ""
-                ? "Search across all mapped business categories."
-                : "Category and web-term matching narrows discovery; review each candidate before contacting."}
-            </p>
           </div>
         </div>
 
         <section className="genlead-search-target" aria-labelledby="company-target-label">
           <div className="genlead-search-target-heading">
-            <label id="company-target-label" htmlFor="company-target">
-              New company target
-            </label>
+            <div className="genlead-field-label">
+              <label id="company-target-label" htmlFor="company-target">New company target</label>
+              <InfoPopover label="Company target" text="This is the maximum number of new candidates to find. Duplicates are skipped, so the result may be smaller. Saved companies in the area appear separately." />
+            </div>
             <output htmlFor="company-target" aria-live="polite">
               {companyLimit}
             </output>
@@ -434,32 +400,16 @@ export default function SearchPage() {
             step={COMPANY_TARGET_STEP}
             value={companyLimit}
             onChange={(event) => setCompanyLimit(Number(event.target.value))}
-            aria-describedby="company-target-help"
           />
           <div className="genlead-search-target-ends" aria-hidden="true">
             <span>{COMPANY_TARGET_MIN}</span>
             <span>{COMPANY_TARGET_MAX}</span>
           </div>
-          <p id="company-target-help" className="genlead-search-target-help">
-            Up to {companyLimit} new candidates; duplicates are skipped and results may be fewer.
-          </p>
         </section>
 
         {/* Role selection */}
-        <div style={{ margin: "0 24px 20px" }}>
-          <label
-            style={{
-              display: "block",
-              fontSize: "11px",
-              fontWeight: 500,
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-              color: "var(--color-text-muted)",
-              marginBottom: "10px",
-            }}
-          >
-            Target Roles (optional)
-          </label>
+        <details className="genlead-search-roles">
+          <summary>Target roles {selectedRoles.length > 0 ? `· ${selectedRoles.length} selected` : "· optional"}</summary>
 
           {/* Priority Roles */}
           <div style={{ marginBottom: "12px" }}>
@@ -578,7 +528,7 @@ export default function SearchPage() {
               })}
             </div>
           </div>
-        </div>
+        </details>
 
         {/* Submit */}
         <button
@@ -637,7 +587,7 @@ export default function SearchPage() {
           jobId={activeJobId}
           onComplete={(data) => {
             toast(
-              `Search complete: ${data.companies_found} new · ${data.known_companies_found ?? 0} already on your list · ${data.contacts_found} contacts`,
+              `Search complete: ${data.companies_found} new ${data.companies_found === 1 ? "company" : "companies"} found · ${data.known_companies_found ?? 0} already on your list · ${data.contacts_found} contacts`,
               "success"
             );
             void getResearchResults(data.job_id)
@@ -694,16 +644,13 @@ export default function SearchPage() {
 
           <section aria-label="Already on your list" style={{ marginBottom: "18px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", marginBottom: "6px" }}>
-              <h2 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>Already on your list <span style={{ color: "var(--color-text-muted)", fontWeight: 500 }}>({researchResults.knownCompanies.length})</span></h2>
+              <div className="genlead-result-heading"><h2 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>Already on your list <span style={{ color: "var(--color-text-muted)", fontWeight: 500 }}>({researchResults.knownCompanies.length})</span></h2><InfoPopover label="Saved companies" text="These are existing Google Sheet records located in the area. Search shows them separately and does not rewrite them." /></div>
               {researchResults.knownCompanies.length > 0 && (
                 <Link href={buildResearchRunCompaniesHref(researchResults.jobId, undefined, "known")} className="btn-secondary" style={{ textDecoration: "none" }}>
                   View saved matches
                 </Link>
               )}
             </div>
-            <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: "0 0 10px" }}>
-              Existing Google Sheet records located in this area. They are shown separately and are not rewritten.
-            </p>
             {researchResults.knownCompanies.length === 0 ? (
               <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: 0 }}>No saved company locations matched this area.</p>
             ) : (
@@ -717,20 +664,17 @@ export default function SearchPage() {
             )}
           </section>
 
-          <section aria-label="New prospects">
+          <section aria-label="New companies found">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", marginBottom: "6px" }}>
-              <h2 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>New prospects <span style={{ color: "var(--color-text-muted)", fontWeight: 500 }}>({researchResults.companies.length})</span></h2>
+              <div className="genlead-result-heading"><h2 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>New companies found <span style={{ color: "var(--color-text-muted)", fontWeight: 500 }}>({researchResults.companies.length})</span></h2><InfoPopover label="New companies" text="These are public-source candidates discovered by this search. Review their website and evidence before contacting." /></div>
               {researchResults.companies.length > 0 && (
                 <Link href={buildResearchRunCompaniesHref(researchResults.jobId)} className="btn-secondary" style={{ textDecoration: "none" }}>
-                  View new prospects
+                  View new companies
                 </Link>
               )}
             </div>
-            <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: "0 0 10px" }}>
-              Newly discovered public-source candidates. Review their evidence before contacting.
-            </p>
             {researchResults.companies.length === 0 ? (
-              <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: 0 }}>No new candidates were added in this search.</p>
+              <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: 0 }}>No new companies were found in this search.</p>
             ) : (
               <div style={{ display: "grid", gap: "8px" }}>
                 {researchResults.companies.map((company, index) => {
@@ -890,7 +834,7 @@ export default function SearchPage() {
                       {run.companiesFound > 0 && (
                         <Link
                           href={buildResearchRunCompaniesHref(run.jobId)}
-                          aria-label={`View ${run.companiesFound} new prospects from ${run.location || run.postcode}`}
+                          aria-label={`View ${run.companiesFound} new ${run.companiesFound === 1 ? "company" : "companies"} from ${run.location || run.postcode}`}
                           style={{ display: "flex", alignItems: "center", gap: "4px", minHeight: "40px", color: "var(--color-accent)", textDecoration: "underline", textUnderlineOffset: "3px", fontSize: "12px" }}
                         >
                           <Building2 size={14} />

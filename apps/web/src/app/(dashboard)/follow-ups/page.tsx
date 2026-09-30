@@ -7,6 +7,7 @@ import { getFollowUps, updateFollowUpStatus } from "@/lib/api";
 import type { CompanyActivity } from "@/lib/types";
 import { PageError, PageLoading } from "@/components/shared/page-status";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
+import { InfoPopover } from "@/components/shared/info-popover";
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -115,11 +116,9 @@ export default function FollowUpsPage() {
 
   return (
     <main style={{ padding: "24px", maxWidth: "960px" }}>
-      <div style={{ marginBottom: "22px" }}>
+      <div className="genlead-page-heading">
         <h1 data-tour="follow-ups-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>Follow-ups</h1>
-        <p style={{ marginTop: "5px", fontSize: "13px", color: "var(--color-text-secondary)" }}>
-          Scheduled next steps from your company call notes. Mark a task done or reopen it if plans change.
-        </p>
+        <InfoPopover label="Follow-ups" text="Scheduled next steps from company call notes. Mark a task done or reopen it when plans change." />
       </div>
 
       {error && <div style={{ marginBottom: "14px" }}><PageError message={error} /></div>}

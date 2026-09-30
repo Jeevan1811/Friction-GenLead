@@ -15,6 +15,7 @@ import { getCompanies, getLocations, getContacts } from "@/lib/api";
 import type { Company, Location, Contact } from "@/lib/types";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
+import { InfoPopover } from "@/components/shared/info-popover";
 
 export default function DashboardPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -84,19 +85,11 @@ export default function DashboardPage() {
 
   return (
     <div style={{ padding: "24px", maxWidth: "1200px" }}>
-      <div style={{ marginBottom: "24px" }}>
+      <div className="genlead-page-heading">
         <h1 data-tour="dashboard-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
           Dashboard
         </h1>
-        <p
-          style={{
-            fontSize: "13px",
-            color: "var(--color-text-secondary)",
-            marginTop: "4px",
-          }}
-        >
-          Overview of your Queensland prospect pipeline
-        </p>
+        <InfoPopover label="Dashboard" text="Live counts from your connected prospect data. Search any supported area, review companies and contacts, then track follow-ups." />
       </div>
 
       {error && (

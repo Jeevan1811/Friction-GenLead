@@ -134,6 +134,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
   return (
     <aside
+      aria-label="Desktop navigation"
       style={{
         width: collapsed ? "var(--sidebar-collapsed-width)" : "var(--sidebar-width)",
         height: "100dvh",

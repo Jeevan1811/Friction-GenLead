@@ -8,6 +8,7 @@ import type { JobRun } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { SampleDataNotice } from "@/components/shared/sample-data-notice";
+import { InfoPopover } from "@/components/shared/info-popover";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
 import { buildResearchRunCompaniesHref } from "@/lib/research-run-results";
 
@@ -56,13 +57,11 @@ export default function SearchesPage() {
 
   return (
     <div style={{ padding: "24px", maxWidth: "900px" }}>
-      <div style={{ marginBottom: "24px" }}>
+      <div className="genlead-page-heading">
         <h1 data-tour="searches-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
           Search History
         </h1>
-        <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginTop: "4px" }}>
-          Saved searches
-        </p>
+        <InfoPopover label="Search history" text="Open a previous run to review saved matches, new prospects and any errors. A run may finish with fewer companies than its target." />
       </div>
 
       <SampleDataNotice />

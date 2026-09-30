@@ -323,6 +323,7 @@ def test_research_results_endpoint_returns_candidate_rows_for_the_ui(monkeypatch
         status="completed",
         details_available=True,
         companies_found=[{"company_id": "c-1", "company_name": "Northstar"}],
+        known_companies_found=[{"company_id": "c-2", "company_name": "Existing Northstar"}],
         contacts_found=[{"contact_id": "p-1", "name": "Jordan Lee"}],
     )
 
@@ -338,7 +339,259 @@ def test_research_results_endpoint_returns_candidate_rows_for_the_ui(monkeypatch
 
     assert response["location"] == "Perth, Australia"
     assert response["companies"] == job.companies_found
+    assert response["known_companies"] == job.known_companies_found
+    assert response["known_matches_available"] is True
     assert response["contacts"] == job.contacts_found
+
+
+def test_wacol_area_search_returns_saved_workbook_matches_and_new_prospects_separately():
+    candidates = [
+        {
+            "provider_id": "overture:allnex-duplicate",
+            "name": "Allnex",
+            "source": "OVERTURE_MAPS",
+            "postcode": "4076",
+        },
+        {
+            "provider_id": "overture:new-wacol-prospect",
+            "name": "New Wacol Engineering",
+            "source": "OVERTURE_MAPS",
+            "suburb": "Wacol",
+            "postcode": "4076",
+            "source_provenance": {"provider": "Overture Maps Places"},
+        },
+    ]
+
+    class PublicPlaces:
+        last_warnings: list[str] = []
+
+        async def search(self, _location: str, _industry: str | None = None):
+            return candidates
+
+    class LiveSheets:
+        is_live = True
+
+        def __init__(self):
+            self.companies = [
+                {"company_id": "cmp-allnex", "company_name": "Allnex", "source": "LEGACY_EXCEL"},
+                {"company_id": "cmp-air-liquid", "company_name": "Air Liquide", "source": "LEGACY_EXCEL"},
+                {"company_id": "cmp-pure", "company_name": "Pure Environmental", "source": "LEGACY_EXCEL"},
+            ]
+            self.locations = [
+                {"location_id": "loc-allnex", "company_id": "cmp-allnex", "suburb": "Brisbane", "state": "QLD", "postcode": "4076"},
+                {"location_id": "loc-air-liquid", "company_id": "cmp-air-liquid", "address": "Factory Road, Wacol", "state": "Queensland", "postcode": ""},
+                {"location_id": "loc-pure", "company_id": "cmp-pure", "suburb": "Murarrie", "state": "QLD", "postcode": "4172"},
+            ]
+            self.company_writes: list[dict] = []
+            self.location_writes: list[dict] = []
+            self.runs: dict[str, dict] = {}
+
+        async def read_companies(self):
+            return list(self.companies)
+
+        async def read_locations(self):
+            return list(self.locations)
+
+        async def read_rejected(self):
+            return []
+
+        def tab_read_error(self, _tab: str):
+            return None
+
+        async def upsert_company(self, row):
+            self.company_writes.append(row)
+            return SyncState.SYNCED
+
+        async def upsert_location(self, row):
+            self.location_writes.append(row)
+            return SyncState.SYNCED
+
+        async def upsert_search_run(self, row):
+            self.runs[row["job_id"]] = row
+            return SyncState.SYNCED
+
+    sheets = LiveSheets()
+    job = ResearchJob(
+        job_id="wacol-saved-and-new-test",
+        postcode="",
+        location_query="Wacol, Queensland, Australia",
+        industry="Valve-focused",
+        target_roles=[],
+        steps=[PipelineStep(name="discover")],
+    )
+
+    service = Jev(sheets=sheets, places=PublicPlaces())
+    asyncio.run(service._step_discover_public_sources(job))
+    asyncio.run(service._persist_job(job))
+
+    assert job.steps[0].status.value == "completed"
+    assert job.result_known_company_ids == ["cmp-allnex", "cmp-air-liquid"]
+    assert [row["company_name"] for row in job.known_companies_found] == ["Allnex", "Air Liquide"]
+    assert job.known_companies_found[0]["matched_locations"][0]["postcode"] == "4076"
+    assert [row["company_name"] for row in job.companies_found] == ["New Wacol Engineering"]
+    assert [row["company_name"] for row in sheets.company_writes] == ["New Wacol Engineering"]
+    assert [row["postcode"] for row in sheets.location_writes] == ["4076"]
+    assert sheets.runs[job.job_id]["known_company_ids"] == '["cmp-allnex", "cmp-air-liquid"]'
+
+
+def test_area_match_uses_postcode_place_names_without_leaking_sibling_areas():
+    from app.services.jev import _location_matches_area
+
+    wacol = {"suburb": "Brisbane", "state": "QLD", "postcode": "4076"}
+    pinkenba = {"suburb": "Pinkenba", "state": "QLD", "postcode": "4008"}
+    interstate = {"suburb": "Wacol", "state": "VIC", "country": "Australia", "postcode": "4076"}
+    postcode_only = {"state": "QLD", "postcode": "4076"}
+
+    assert _location_matches_area("Wacol, Queensland, Australia", wacol)
+    assert not _location_matches_area("Wacol, Queensland, Australia", pinkenba)
+    assert _location_matches_area("Pinkenba", pinkenba)
+    assert not _location_matches_area("Pinkenba", wacol)
+    assert not _location_matches_area("Wacol, Victoria", wacol)
+    assert not _location_matches_area("Wacol, QLD, Australia", interstate)
+    assert not _location_matches_area("Wacol 4008", pinkenba)
+    assert _location_matches_area("Wacol 4076 QLD", postcode_only)
+
+
+def test_saved_area_results_survive_a_locations_read_failure_after_completion():
+    class CanonicalSheets:
+        async def read_companies(self):
+            return [
+                {"company_id": "cmp-new", "company_name": "New Prospect"},
+                {"company_id": "cmp-saved", "company_name": "Allnex"},
+            ]
+
+        async def read_contacts(self):
+            return []
+
+        async def read_locations(self):
+            raise RuntimeError("synthetic temporary location-tab outage")
+
+    row = {
+        "job_id": "saved-result-location-read-retry",
+        "location_query": "Wacol, Queensland",
+        "postcode": "",
+        "status": "completed",
+        "companies_found": "1",
+        "contacts_found": "0",
+        "company_ids": '["cmp-new"]',
+        "known_company_ids": '["cmp-saved"]',
+        "contact_ids": "[]",
+        "details_saved": "true",
+    }
+    job = Jev._job_from_run_row(row)
+
+    restored = asyncio.run(Jev(sheets=CanonicalSheets()).get_job_results(job))
+
+    assert [item["company_name"] for item in restored.companies_found] == ["New Prospect"]
+    assert [item["company_name"] for item in restored.known_companies_found] == ["Allnex"]
+    assert restored.known_companies_found[0]["matched_locations"] == []
+    assert restored.known_matches_available is False
+    assert any("area evidence is unavailable" in warning for warning in restored.warnings)
+
+
+def test_locations_read_failure_is_reported_without_blocking_new_results():
+    candidate = {
+        "provider_id": "overture:read-failure-new",
+        "name": "New Candidate",
+        "source": "OVERTURE_MAPS",
+    }
+
+    class PublicPlaces:
+        last_warnings: list[str] = []
+
+        async def search(self, _location: str, _industry: str | None = None):
+            return [candidate]
+
+    class PartialSheets:
+        is_live = True
+
+        async def read_companies(self):
+            return []
+
+        async def read_locations(self):
+            raise RuntimeError("synthetic location-tab outage")
+
+        async def read_rejected(self):
+            return []
+
+        def tab_read_error(self, _tab: str):
+            return None
+
+        async def upsert_company(self, _row):
+            return SyncState.SYNCED
+
+        async def upsert_location(self, _row):
+            return SyncState.SYNCED
+
+    job = ResearchJob(
+        job_id="location-read-failure-keeps-discoveries",
+        postcode="",
+        location_query="Wacol, Queensland",
+        industry="Valve-focused",
+        target_roles=[],
+        steps=[PipelineStep(name="discover")],
+    )
+
+    asyncio.run(Jev(sheets=PartialSheets(), places=PublicPlaces())._step_discover_public_sources(job))
+
+    assert job.steps[0].status.value == "completed"
+    assert job.known_matches_available is False
+    assert job.known_companies_found == []
+    assert len(job.companies_found) == 1
+    assert any("Locations tab is unavailable" in warning for warning in job.warnings)
+
+
+def test_saved_area_matches_complete_even_when_every_public_provider_fails(caplog):
+    class FailedPublicSource:
+        last_warnings: list[str] = []
+
+        async def search(self, _location: str, _industry: str | None = None):
+            raise RuntimeError("synthetic public provider outage")
+
+    class ReadOnlySheets:
+        async def read_companies(self):
+            return [{"company_id": "cmp-saved", "company_name": "Allnex", "source": "LEGACY_EXCEL"}]
+
+        async def read_locations(self):
+            return [{"company_id": "cmp-saved", "suburb": "Brisbane", "postcode": "4076"}]
+
+        async def read_rejected(self):
+            return []
+
+        def tab_read_error(self, _tab: str):
+            return None
+
+    job = ResearchJob(
+        job_id="saved-wacol-results-survive-provider-outage",
+        postcode="",
+        location_query="Wacol, Queensland",
+        industry="Valve-focused",
+        target_roles=[],
+        steps=[PipelineStep(name="discover")],
+    )
+
+    asyncio.run(
+        Jev(
+            sheets=ReadOnlySheets(),
+            places=FailedPublicSource(),
+            web_search=FailedPublicSource(),
+        )._step_discover_public_sources(job)
+    )
+
+    assert job.steps[0].status.value == "completed"
+    assert [row["company_name"] for row in job.known_companies_found] == ["Allnex"]
+    assert job.companies_found == []
+    assert job.known_matches_available is True
+    assert any("saved area matches are still shown" in warning for warning in job.warnings)
+    exhaustion_events = [
+        json.loads(record.message)
+        for record in caplog.records
+        if record.message.startswith("{")
+        and json.loads(record.message).get("event") == "search.discovery_sources_exhausted"
+    ]
+    assert exhaustion_events[0]["outcome"] == "saved_only"
+    assert exhaustion_events[0]["category"] == "all_sources_failed_saved_matches_available"
+    assert exhaustion_events[0]["saved_area_matches"] == 1
 
 
 def test_no_abn_public_business_candidate_is_saved_with_its_location():

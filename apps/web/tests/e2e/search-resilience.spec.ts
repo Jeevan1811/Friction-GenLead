@@ -126,7 +126,7 @@ test("a slow status timeout stays understandable, retries once at a time, and co
   await page.getByRole("button", { name: "Retry now" }).click();
   await expect(page.getByText(/search service took too long to respond/i)).toHaveCount(0);
   await expect.poll(() => statusReads, { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
-  await expect(page.getByText("No new matches were added.", { exact: false })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("No new candidates were added in this search.", { exact: true })).toBeVisible({ timeout: 10_000 });
 
   expect(maxConcurrentStatusReads).toBe(1);
   expect(uncaughtPageErrors).toEqual([]);
@@ -251,4 +251,62 @@ test("a missing job stops futile retries and explains the safe next step", async
   await expect(page.getByRole("button", { name: "Search public sources" })).toBeEnabled();
   await page.waitForTimeout(3200);
   expect(statusReads).toBe(1);
+});
+
+test("a completed area search keeps saved workbook matches separate from new prospects", async ({ page }, testInfo) => {
+  await page.route("**/internal/**", async (route) => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+
+    if (url.pathname === "/internal/ops/jobs") return fulfillJson(route, []);
+    if (url.pathname === "/internal/data/sync-status") return fulfillJson(route, {});
+    if (url.pathname === "/internal/ops/research" && method === "POST") {
+      return fulfillJson(route, { job_id: testJobId, status: "running", message: "Started" });
+    }
+    if (url.pathname === `/internal/ops/research/${testJobId}/results`) {
+      return fulfillJson(route, {
+        job_id: testJobId,
+        location: "Wacol, Queensland",
+        status: "completed",
+        companies: [
+          { company_id: "cmp-new", company_name: "New Wacol Engineering", source: "OVERTURE_MAPS", postcode: "4076" },
+        ],
+        known_companies: [
+          {
+            company_id: "cmp-saved",
+            company_name: "Allnex",
+            source: "LEGACY_EXCEL",
+            matched_locations: [{ suburb: "Wacol", state: "QLD", postcode: "4076" }],
+          },
+        ],
+        known_matches_available: true,
+        contacts: [],
+        warnings: [],
+        errors: [],
+      });
+    }
+    if (url.pathname === `/internal/ops/research/${testJobId}`) {
+      return fulfillJson(route, {
+        ...completedStatus(),
+        known_companies_found: 1,
+        known_matches_available: true,
+      });
+    }
+    return fulfillJson(route, {});
+  });
+
+  await page.goto("/search");
+  await fillLocationAndStart(page);
+
+  const savedSection = page.getByRole("region", { name: "Already on your list" });
+  const newSection = page.getByRole("region", { name: "New prospects" });
+  await expect(savedSection.getByText("Allnex")).toBeVisible({ timeout: 10_000 });
+  await expect(savedSection.getByText(/Wacol, QLD, 4076/)).toBeVisible();
+  await expect(newSection.getByText("New Wacol Engineering")).toBeVisible();
+  await expect(savedSection.getByRole("link", { name: "View saved matches" })).toHaveAttribute("href", /cohort=known/);
+  await expect(newSection.getByRole("link", { name: "View new prospects" })).toHaveAttribute("href", /researchRun=/);
+  await page.locator("div.surface-card").filter({ has: savedSection }).last().screenshot({
+    path: testInfo.outputPath("saved-and-new-area-results.png"),
+    animations: "disabled",
+  });
 });

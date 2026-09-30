@@ -45,6 +45,8 @@ class JobSummary(BaseModel):
     industry: str | None
     status: str
     companies_found: int
+    known_companies_found: int
+    known_matches_available: bool
     contacts_found: int
     steps: list[dict]
     warnings: list[str]
@@ -155,6 +157,8 @@ async def get_research_status(job_id: str) -> JobSummary:
         industry=job.industry,
         status=job.status,
         companies_found=job.companies_count,
+        known_companies_found=job.known_companies_count,
+        known_matches_available=job.known_matches_available,
         contacts_found=job.contacts_count,
         steps=[
             {
@@ -198,6 +202,8 @@ async def get_research_results(job_id: str) -> dict:
         "location": job.location_query or job.postcode,
         "status": job.status,
         "companies": job.companies_found,
+        "known_companies": job.known_companies_found,
+        "known_matches_available": job.known_matches_available,
         "contacts": job.contacts_found,
         "warnings": job.warnings,
         "errors": _public_job_errors(job.errors),
@@ -216,6 +222,8 @@ async def list_jobs() -> list[dict]:
             "industry": j.industry,
             "status": j.status,
             "companies_found": j.companies_count,
+            "known_companies_found": j.known_companies_count,
+            "known_matches_available": j.known_matches_available,
             "contacts_found": j.contacts_count,
             "created_at": j.created_at.isoformat(),
             "updated_at": j.updated_at.isoformat(),

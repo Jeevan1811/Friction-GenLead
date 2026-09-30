@@ -31,6 +31,8 @@ interface ResearchStatusData {
   job_id: string;
   status: string;
   companies_found: number;
+  known_companies_found?: number;
+  known_matches_available?: boolean;
   contacts_found: number;
   steps: ResearchStep[];
   warnings: string[];
@@ -445,7 +447,7 @@ export function ResearchProgress({
       </div>
 
       {/* Summary counts */}
-      {data && (data.companies_found > 0 || data.contacts_found > 0) && (
+      {data && (data.companies_found > 0 || (data.known_companies_found ?? 0) > 0 || data.contacts_found > 0) && (
         <div
           style={{
             display: "flex",
@@ -466,8 +468,23 @@ export function ResearchProgress({
           >
             <Building2 size={16} style={{ color: "var(--color-accent)" }} />
             <span style={{ fontWeight: 600 }}>{data.companies_found}</span>
-            companies
+            new prospects
           </div>
+          {(data.known_companies_found ?? 0) > 0 && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                fontSize: "13px",
+                color: "var(--color-text-secondary)",
+              }}
+            >
+              <Building2 size={16} style={{ color: "#147c77" }} />
+              <span style={{ fontWeight: 600 }}>{data.known_companies_found}</span>
+              already on your list
+            </div>
+          )}
           <div
             style={{
               display: "flex",

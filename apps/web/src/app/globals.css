@@ -171,6 +171,139 @@
   display: none;
 }
 
+.genlead-map-div-icon {
+  background: transparent;
+  border: 0;
+}
+
+.genlead-map-marker {
+  box-sizing: border-box;
+  display: inline-flex;
+  width: 25px;
+  height: 25px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 5px rgb(26 23 20 / 38%);
+  color: #fff;
+  font: 700 10px/1 var(--font-sans);
+}
+
+.genlead-map-marker--saved {
+  border-radius: 50%;
+  background: #c8372d;
+}
+
+.genlead-map-marker--prospect {
+  border-radius: 4px;
+  background: #147c77;
+  transform: rotate(45deg) scale(.82);
+}
+
+.genlead-map-marker--unknown {
+  border-radius: 5px;
+  background: #586474;
+}
+
+.genlead-map-marker--mixed {
+  border-radius: 50%;
+  background: conic-gradient(
+    #c8372d 0 var(--genlead-saved-stop),
+    #147c77 var(--genlead-saved-stop) var(--genlead-prospect-stop),
+    #586474 var(--genlead-prospect-stop) 100%
+  );
+}
+
+.genlead-map-marker-count {
+  transform: rotate(-45deg);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 55%);
+}
+
+.genlead-map-marker--saved .genlead-map-marker-count,
+.genlead-map-marker--unknown .genlead-map-marker-count,
+.genlead-map-marker--mixed .genlead-map-marker-count {
+  transform: none;
+}
+
+.genlead-map-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px 18px;
+  flex-wrap: wrap;
+  margin: -12px 0 22px;
+  padding: 9px 12px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.genlead-map-legend-item {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  gap: 7px;
+}
+
+.genlead-map-legend-item .genlead-map-marker {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  border-width: 1.5px;
+}
+
+.genlead-map-legend-item strong {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.genlead-map-legend-unit {
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.genlead-map-popup-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 4px 8px;
+}
+
+.genlead-map-origin-badge {
+  justify-self: end;
+  padding: 3px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.genlead-map-origin-badge--saved {
+  background: #fef2f1;
+  color: #9f241d;
+}
+
+.genlead-map-origin-badge--prospect {
+  background: #e8f5f4;
+  color: #075d58;
+}
+
+.genlead-map-origin-badge--unknown {
+  background: #eef0f3;
+  color: #475467;
+}
+
+@media (max-width: 540px) {
+  .genlead-map-legend {
+    gap: 4px 12px;
+  }
+
+  .genlead-map-legend-item {
+    gap: 5px;
+  }
+}
+
 /* ---------- Dark theme ---------- */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {

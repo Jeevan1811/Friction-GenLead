@@ -159,6 +159,7 @@ SPREADSHEET_TABS: dict[str, TabConfig] = {
             "country_code",
             "latitude",
             "longitude",
+            "known_company_ids",
         ],
     },
     "source_records": {

@@ -50,6 +50,12 @@ interface ResearchCompanyResult {
   postcode?: string;
   source_url?: string;
   source_provenance?: string;
+  matched_locations?: Array<{
+    suburb?: string;
+    state?: string;
+    postcode?: string;
+    address?: string;
+  }>;
 }
 
 interface ResearchContactResult {
@@ -61,6 +67,92 @@ interface ResearchContactResult {
   phone?: string;
   mobile?: string;
   source_url?: string;
+}
+
+function publicSourceLabel(source: string): string {
+  const normalized = source.toLowerCase();
+  if (normalized.includes("overture")) return "Overture Maps candidate";
+  if (normalized.includes("firecrawl")) return "Web-search candidate";
+  if (normalized.includes("openstreetmap")) return "OpenStreetMap candidate";
+  if (normalized.includes("abn") || normalized.includes("abr")) return "ABR name match";
+  return "Public-source candidate";
+}
+
+function CompanyResultCard({
+  company,
+  href,
+  savedMatch = false,
+}: {
+  company: ResearchCompanyResult;
+  href: string | null;
+  savedMatch?: boolean;
+}) {
+  const companyName = company.company_name || company.name || "Unnamed company";
+  let sourceUrl = company.source_url || "";
+  let sourceProvider = company.source || "Public source";
+  if (!sourceUrl && company.source_provenance) {
+    try {
+      const provenance = JSON.parse(company.source_provenance);
+      sourceUrl = provenance.record_url || "";
+      sourceProvider = provenance.provider || sourceProvider;
+    } catch {
+      sourceUrl = "";
+    }
+  }
+  const siteLabels = [...new Set((company.matched_locations ?? []).map((location) =>
+    [location.suburb, location.state, location.postcode].filter(Boolean).join(", ") || location.address || "",
+  ).filter(Boolean))];
+  const locationLabel = siteLabels.length
+    ? siteLabels.slice(0, 2).join(" · ")
+    : [company.country, company.state, company.postcode].filter(Boolean).join(" · ");
+  const sourceName = savedMatch
+    ? (String(company.source || "").toUpperCase() === "LEGACY_EXCEL" ? "MSV workbook" : "Saved in Google Sheets")
+    : `${publicSourceLabel(sourceProvider)} · needs review`;
+
+  return (
+    <div style={{ padding: "12px", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+        {href ? (
+          <Link href={href} style={{ fontSize: "14px", fontWeight: 600, color: "var(--color-accent)", textDecoration: "underline", textUnderlineOffset: "3px" }}>
+            {companyName}
+          </Link>
+        ) : (
+          <strong style={{ fontSize: "14px" }}>{companyName}</strong>
+        )}
+        <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>{sourceName}</span>
+      </div>
+      <div style={{ marginTop: "4px", fontSize: "12px", color: "var(--color-text-secondary)" }}>
+        {locationLabel || (savedMatch ? "Saved match for this area" : "Location not listed")}
+        {company.abn ? ` · ABN ${company.abn}` : ""}
+        {company.industry ? ` · ${company.industry}` : ""}
+      </div>
+      {company.industry_match && (
+        <div style={{ marginTop: "4px", fontSize: "11px", color: "var(--color-text-muted)" }}>
+          Search match evidence: {company.industry_match === "TAG_MATCH" ? "mapped industry tag" : company.industry_match === "INDUSTRY_FEATURE_MATCH" ? "mapped industry feature" : "company name only"}
+        </div>
+      )}
+      {company.website && (
+        <a href={company.website} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: "5px", marginRight: "12px", fontSize: "12px" }}>
+          Visit listed website
+        </a>
+      )}
+      {!savedMatch && (company.business_email || company.email) && (
+        <a href={`mailto:${company.business_email || company.email}`} style={{ display: "inline-block", marginTop: "5px", marginRight: "12px", fontSize: "12px" }}>
+          {company.business_email || company.email}
+        </a>
+      )}
+      {!savedMatch && (company.business_phone || company.phone) && (
+        <a href={`tel:${company.business_phone || company.phone}`} style={{ display: "inline-block", marginTop: "5px", marginRight: "12px", fontSize: "12px" }}>
+          {company.business_phone || company.phone}
+        </a>
+      )}
+      {!savedMatch && sourceUrl && (
+        <a href={sourceUrl} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: "5px", fontSize: "12px" }}>
+          View {sourceProvider} source
+        </a>
+      )}
+    </div>
+  );
 }
 
 const PRIORITY_ROLES = [
@@ -106,6 +198,8 @@ export default function SearchPage() {
   const [researchResults, setResearchResults] = useState<{
     jobId: string;
     companies: ResearchCompanyResult[];
+    knownCompanies: ResearchCompanyResult[];
+    knownMatchesAvailable: boolean;
     contacts: ResearchContactResult[];
   } | null>(null);
   const [searchRuns, setSearchRuns] = useState<JobRun[]>([]);
@@ -543,7 +637,7 @@ export default function SearchPage() {
           jobId={activeJobId}
           onComplete={(data) => {
             toast(
-              `Research complete: ${data.companies_found} companies, ${data.contacts_found} contacts found`,
+              `Search complete: ${data.companies_found} new · ${data.known_companies_found ?? 0} already on your list · ${data.contacts_found} contacts`,
               "success"
             );
             void getResearchResults(data.job_id)
@@ -551,6 +645,8 @@ export default function SearchPage() {
                 setResearchResults({
                   jobId: results.job_id,
                   companies: results.companies as ResearchCompanyResult[],
+                  knownCompanies: (results.known_companies ?? []) as ResearchCompanyResult[],
+                  knownMatchesAvailable: results.known_matches_available !== false,
                   contacts: results.contacts as ResearchContactResult[],
                 });
                 void loadSearchRuns();
@@ -590,95 +686,63 @@ export default function SearchPage() {
 
       {researchResults && (
         <div className="surface-card" style={{ padding: "20px", marginBottom: "32px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", marginBottom: "12px" }}>
-            <h2 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>New public-source matches</h2>
-            {researchResults.companies.length > 0 && (
-              <Link
-                href={buildResearchRunCompaniesHref(researchResults.jobId)}
-                className="btn-secondary"
-                style={{ textDecoration: "none" }}
-              >
-                View {researchResults.companies.length} companies
-              </Link>
-            )}
-          </div>
-          {researchResults.companies.length === 0 ? (
-            <p style={{ fontSize: "13px", color: "var(--color-text-secondary)" }}>No new matches were added. Existing and rejected businesses are suppressed to avoid duplicates.</p>
-          ) : (
-            <div style={{ display: "grid", gap: "10px" }}>
-              {researchResults.companies.map((company, index) => {
-                const companyName = company.company_name || company.name || "Unnamed public-source candidate";
-                let sourceUrl = company.source_url || "";
-                let sourceProvider = company.source || "Public source";
-                if (!sourceUrl && company.source_provenance) {
-                  try {
-                    const provenance = JSON.parse(company.source_provenance);
-                    sourceUrl = provenance.record_url || "";
-                    sourceProvider = provenance.provider || sourceProvider;
-                  } catch {
-                    sourceUrl = "";
-                  }
-                }
-                const sourceName = sourceProvider.toLowerCase().includes("overture") || sourceProvider.toLowerCase() === "overture_maps"
-                  ? "Overture Maps candidate"
-                  : sourceProvider.toLowerCase().includes("firecrawl") || sourceProvider.toLowerCase() === "firecrawl_search"
-                    ? "Web-search candidate"
-                  : sourceProvider.toLowerCase().includes("openstreetmap")
-                    ? "OpenStreetMap candidate"
-                  : sourceProvider.toLowerCase().includes("abn") || sourceProvider.toLowerCase().includes("abr")
-                    ? "ABR name match"
-                    : "Public-source candidate";
-                const companyHref = company.company_id
-                  ? buildResearchRunCompaniesHref(researchResults.jobId, company.company_id)
-                  : null;
-                const locationLabel = [company.country, company.state, company.postcode].filter(Boolean).join(" · ");
-                return (
-                  <div key={company.company_id || `${company.abn || companyName}-${index}`} style={{ padding: "12px", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)" }}>
-                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "12px" }}>
-                      {companyHref ? (
-                        <Link href={companyHref} style={{ fontSize: "14px", fontWeight: 600, color: "var(--color-accent)", textDecoration: "underline", textUnderlineOffset: "3px" }}>
-                          {companyName}
-                        </Link>
-                      ) : (
-                        <strong style={{ fontSize: "14px" }}>{companyName}</strong>
-                      )}
-                      <span style={{ fontSize: "11px", color: "var(--color-text-muted)" }}>{sourceName} · needs review</span>
-                    </div>
-                    <div style={{ marginTop: "4px", fontSize: "12px", color: "var(--color-text-secondary)" }}>
-                      {locationLabel || "Location not listed"}
-                      {company.abn ? ` · ABN ${company.abn}` : ""}
-                      {company.industry ? ` · ${company.industry}` : ""}
-                    </div>
-                    {company.industry_match && (
-                      <div style={{ marginTop: "4px", fontSize: "11px", color: "var(--color-text-muted)" }}>
-                        Search match evidence: {company.industry_match === "TAG_MATCH" ? "mapped industry tag" : company.industry_match === "INDUSTRY_FEATURE_MATCH" ? "mapped industry feature" : "company name only"}
-                      </div>
-                    )}
-                    {company.website && (
-                      <a href={company.website} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: "5px", marginRight: "12px", fontSize: "12px" }}>
-                        Visit listed website
-                      </a>
-                    )}
-                    {(company.business_email || company.email) && (
-                      <a href={`mailto:${company.business_email || company.email}`} style={{ display: "inline-block", marginTop: "5px", marginRight: "12px", fontSize: "12px" }}>
-                        {company.business_email || company.email}
-                      </a>
-                    )}
-                    {(company.business_phone || company.phone) && (
-                      <a href={`tel:${company.business_phone || company.phone}`} style={{ display: "inline-block", marginTop: "5px", marginRight: "12px", fontSize: "12px" }}>
-                        {company.business_phone || company.phone}
-                      </a>
-                    )}
-                    {sourceUrl && (
-                      <a href={sourceUrl} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: "5px", fontSize: "12px" }}>
-                        View {sourceProvider} source
-                      </a>
-                    )}
-                  </div>
-                );
-              })}
+          {!researchResults.knownMatchesAvailable && (
+            <div role="status" style={{ marginBottom: "14px", padding: "10px 12px", borderRadius: "var(--radius-sm)", background: "#FFFBEB", border: "1px solid #FDE68A", color: "#92400E", fontSize: "12px" }}>
+              Saved matches could not be checked because the Locations tab was unavailable. New public-source results below are unaffected.
             </div>
           )}
+
+          <section aria-label="Already on your list" style={{ marginBottom: "18px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", marginBottom: "6px" }}>
+              <h2 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>Already on your list <span style={{ color: "var(--color-text-muted)", fontWeight: 500 }}>({researchResults.knownCompanies.length})</span></h2>
+              {researchResults.knownCompanies.length > 0 && (
+                <Link href={buildResearchRunCompaniesHref(researchResults.jobId, undefined, "known")} className="btn-secondary" style={{ textDecoration: "none" }}>
+                  View saved matches
+                </Link>
+              )}
+            </div>
+            <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: "0 0 10px" }}>
+              Existing Google Sheet records located in this area. They are shown separately and are not rewritten.
+            </p>
+            {researchResults.knownCompanies.length === 0 ? (
+              <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: 0 }}>No saved company locations matched this area.</p>
+            ) : (
+              <div style={{ display: "grid", gap: "8px" }}>
+                {researchResults.knownCompanies.map((company, index) => {
+                  const companyName = company.company_name || company.name || "Saved company";
+                  const href = company.company_id ? `/companies?companyId=${encodeURIComponent(company.company_id)}` : null;
+                  return <CompanyResultCard key={company.company_id || `${companyName}-${index}`} company={company} href={href} savedMatch />;
+                })}
+              </div>
+            )}
+          </section>
+
+          <section aria-label="New prospects">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", marginBottom: "6px" }}>
+              <h2 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>New prospects <span style={{ color: "var(--color-text-muted)", fontWeight: 500 }}>({researchResults.companies.length})</span></h2>
+              {researchResults.companies.length > 0 && (
+                <Link href={buildResearchRunCompaniesHref(researchResults.jobId)} className="btn-secondary" style={{ textDecoration: "none" }}>
+                  View new prospects
+                </Link>
+              )}
+            </div>
+            <p style={{ fontSize: "12px", color: "var(--color-text-secondary)", margin: "0 0 10px" }}>
+              Newly discovered public-source candidates. Review their evidence before contacting.
+            </p>
+            {researchResults.companies.length === 0 ? (
+              <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: 0 }}>No new candidates were added in this search.</p>
+            ) : (
+              <div style={{ display: "grid", gap: "8px" }}>
+                {researchResults.companies.map((company, index) => {
+                  const companyName = company.company_name || company.name || "New public-source candidate";
+                  const href = company.company_id
+                    ? buildResearchRunCompaniesHref(researchResults.jobId, company.company_id)
+                    : null;
+                  return <CompanyResultCard key={company.company_id || `${company.abn || companyName}-${index}`} company={company} href={href} />;
+                })}
+              </div>
+            )}
+          </section>
           {researchResults.contacts.length > 0 && (
             <div style={{ marginTop: "16px" }}>
               <h3 style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>Publicly listed people</h3>
@@ -821,24 +885,29 @@ export default function SearchPage() {
                     flexShrink: 0,
                   }}
                 >
-                  {run.status !== "running" && run.companiesFound > 0 ? (
-                    <Link
-                      href={buildResearchRunCompaniesHref(run.jobId)}
-                      aria-label={`View ${run.companiesFound} companies from ${run.location || run.postcode}`}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "4px",
-                        minHeight: "40px",
-                        color: "var(--color-accent)",
-                        textDecoration: "underline",
-                        textUnderlineOffset: "3px",
-                        fontSize: "12px",
-                      }}
-                    >
-                      <Building2 size={14} />
-                      {run.companiesFound} companies
-                    </Link>
+                  {run.status !== "running" && (run.companiesFound > 0 || (run.knownCompaniesFound ?? 0) > 0) ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                      {run.companiesFound > 0 && (
+                        <Link
+                          href={buildResearchRunCompaniesHref(run.jobId)}
+                          aria-label={`View ${run.companiesFound} new prospects from ${run.location || run.postcode}`}
+                          style={{ display: "flex", alignItems: "center", gap: "4px", minHeight: "40px", color: "var(--color-accent)", textDecoration: "underline", textUnderlineOffset: "3px", fontSize: "12px" }}
+                        >
+                          <Building2 size={14} />
+                          {run.companiesFound} new
+                        </Link>
+                      )}
+                      {(run.knownCompaniesFound ?? 0) > 0 && (
+                        <Link
+                          href={buildResearchRunCompaniesHref(run.jobId, undefined, "known")}
+                          aria-label={`View ${run.knownCompaniesFound} saved matches from ${run.location || run.postcode}`}
+                          style={{ display: "flex", alignItems: "center", gap: "4px", minHeight: "40px", color: "#147c77", textDecoration: "underline", textUnderlineOffset: "3px", fontSize: "12px" }}
+                        >
+                          <Building2 size={14} />
+                          {run.knownCompaniesFound} saved
+                        </Link>
+                      )}
+                    </div>
                   ) : (
                     <div
                       style={{

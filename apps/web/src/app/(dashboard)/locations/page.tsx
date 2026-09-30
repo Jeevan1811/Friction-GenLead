@@ -124,7 +124,7 @@ export default function LocationsPage() {
           Locations
         </h1>
         <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginTop: "4px" }}>
-          Business locations from saved prospects
+          Saved workbook sites and public-source prospects are marked separately
         </p>
       </div>
 
@@ -139,7 +139,7 @@ export default function LocationsPage() {
       ) : (
         <>
       {/* Globe map view */}
-      <GlobeView locations={filtered} />
+      <GlobeView locations={filtered} companiesById={companyById} />
 
       {/* Toolbar */}
       <div

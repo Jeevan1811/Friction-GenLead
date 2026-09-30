@@ -74,6 +74,7 @@ def emit_event(
     sources_succeeded: int | None = None,
     sources_failed: int | None = None,
     candidates_found: int | None = None,
+    saved_area_matches: int | None = None,
     companies_saved: int | None = None,
     contacts_saved: int | None = None,
     sheets_sync: str | None = None,
@@ -117,6 +118,8 @@ def emit_event(
         payload["sources_failed"] = max(0, int(sources_failed))
     if candidates_found is not None:
         payload["candidates_found"] = max(0, int(candidates_found))
+    if saved_area_matches is not None:
+        payload["saved_area_matches"] = max(0, int(saved_area_matches))
     if companies_saved is not None:
         payload["companies_saved"] = max(0, int(companies_saved))
     if contacts_saved is not None:

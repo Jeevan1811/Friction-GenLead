@@ -1,6 +1,16 @@
 # Friction GenLead AI Working Context
 
-Last updated: 2026-09-29 (Asia/Singapore)
+Last updated: 2026-09-30 (Asia/Singapore)
+
+## Current task — show saved area matches beside new prospects (deployed)
+
+- Truth: **PR #31 merged and deployed**. Production `main` commit `7b3b34a3eb0cf31b9230c933d2074f7f25683353`; implementation commit `c689d8b0458acba2e544090ed6ac95be26d0be1a`. Production checkout `/opt/frictiongenlead/app`; only the `frictiongenlead-api` and `frictiongenlead-web` PM2 processes were restarted. Preserve other VPS apps and the existing untracked SMTP backup, `ecosystem.config.js`, and research virtualenv.
+- Area search now returns saved workbook/Sheet matches and new public-source prospects separately. Saved matching uses only Location-tab evidence, not company-name similarity. Exact four-digit postcodes, suburb/address names and the local `postcode_place` lookup are used; explicit contradictory state/country qualifiers reject a row. Examples verified locally: Wacol/4076 matches and Pinkenba/4008 does not leak into Wacol; a QLD/postcode mismatch is rejected.
+- Persist known company IDs in an appended SearchRuns field so saved cohorts can be reconstructed after API restart. Existing Sheet header order/data are preserved by the adapter's append-only schema reconciliation. A temporary Locations-tab read failure returns a warning while preserving the saved run/new results; if all public providers fail, saved area matches still display and the structured event is a warning with `saved_only`, not a false failed-search error.
+- Map origin display: workbook red-circle markers; public-source teal-diamond markers; unclassified slate-square markers; split markers at co-located mixed origins. Legend numbers count mapped locations. Popups show source badges. The marker effect depends on company metadata so a refreshed company source reclassifies markers even if location rows are unchanged.
+- QA: backend **186 passed**; web unit **30 passed**; TypeScript and optimized production build passed; Playwright **7 passed** against synthetic data. Rendered test screenshots are in ignored `apps/web/test-results/` paths `locations-origin-the-map-d-2d9bf-nd-unknown-origin-locations/locations-origin-map.png` and `search-resilience-a-comple-981e8-separate-from-new-prospects/saved-and-new-area-results.png`. OSM tiles were intentionally blocked during screenshot QA; deployed map uses the configured normal tile layer. No production search was submitted and no company/location/contact rows were written for QA.
+- VPS smoke: API `/internal/health` 200; `/login` 200; unauthenticated `/search` 307; unauthenticated `/internal/ops/jobs` 401; both named GenLead PM2 processes online. API source compilation and remote Next production build passed. The SearchRuns header behavior is append-only by code; the header was not independently read back after restart.
+- Review limits: no GitHub CI checks were reported. Required guarded Gemini/Claude secondary reviews were attempted but unavailable (sandbox permission denied; organization-disabled Claude access); no independent reviewer is claimed. No secrets or `.env` files were opened/changed. The hourly sanitized log monitor stays read-only and remains active.
 
 ## Current task — structured GenLead API/search events (deployed)
 

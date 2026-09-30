@@ -2,6 +2,8 @@
 
 ## 2026-10-01 - earlier overlay defects, fixes-only release preparation
 
+- Closure: PR #38 merged at `2bdcf705986d85c1d7026436d273057accc4f5e8`; dependency install and VPS staged production build pass. Promoted build after validating exact paths, copied nonconflicting prior hashed static assets for already-open clients, retained old build `/opt/frictiongenlead/build-backups/f65b4b6-20261001-overlay`, restarted only web. API PID remained 158341; web online. A CR appended by PowerShell broke the script's final `git rev-parse HEAD` read, not deployment; separate read-only probes confirmed actual revision `2bdcf70`, tracked clean tree and healthy services. Web login 200; Settings unauthenticated 307; API health 200; jobs unauthenticated 401; external HTTPS login 200. No authenticated production workflow was available to retest. No redesign, account/provider/SMTP/env/Sheet changes or monitor recreation.
+
 - PR #37 merged at `9a33d53ae661efd7845d98aabb2d15c3f6027976`. First VPS staged build stopped at TypeScript because `@types/react-dom` was not explicitly declared; the local resolver had an ambient copy outside this repo. No bundle swap/restart occurred, and both live web/API probes still returned 200. Added the matching React DOM type dependency to web devDependencies and lockfile; local clean dependency resolution/typecheck pass. Dependency-only follow-up release required before retrying. Preserve the generated `next-env.d.ts` staging change until explicitly reversed; no unrelated dirty file may be swept up.
 
 - Owner sequencing: finish previous popup/dashboard fixes first, deploy fixes with existing live design; keep larger cluster/data-quality/light-theme/time-savings work for the next local stage.

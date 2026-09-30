@@ -55,12 +55,35 @@ async function fulfillJson(route: Route, body: unknown, status = 200) {
 }
 
 async function fillLocationAndStart(page: Page) {
-  await page.getByLabel(/city, region, country or postcode/i).fill("Mackay, Queensland");
+  await page.getByLabel(/city, region or postcode/i).fill("Mackay, Queensland");
   await page.getByRole("button", { name: "Search public sources" }).click();
 }
 
 test.beforeEach(async ({ page }) => {
   await addLocalSession(page);
+});
+
+test("search help is on demand and optional roles stay usable", async ({ page }) => {
+  await page.route("**/internal/**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/internal/ops/jobs") return fulfillJson(route, []);
+    if (path === "/internal/data/sync-status") return fulfillJson(route, { connected: true, mode: "live", state: "SYNCED" });
+    return fulfillJson(route, {});
+  });
+  await page.goto("/search");
+  await expect(page.getByText("Unverified leads · review before contacting")).toBeVisible();
+  await page.getByRole("button", { name: "About Search sources" }).click();
+  await expect(page.getByRole("dialog", { name: "About Search sources" })).toContainText("Coverage varies");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "About Search sources" })).toHaveCount(0);
+
+  const roles = page.locator("details.genlead-search-roles");
+  await expect(roles).not.toHaveAttribute("open");
+  await roles.locator("summary").click();
+  await roles.getByRole("button", { name: "Plant Manager" }).click();
+  await expect(roles.locator("summary")).toContainText("1 selected");
+  await roles.locator("summary").click();
+  await expect(roles).not.toHaveAttribute("open");
 });
 
 test("a slow status timeout stays understandable, retries once at a time, and completes", async ({ page }) => {
@@ -126,7 +149,7 @@ test("a slow status timeout stays understandable, retries once at a time, and co
   await page.getByRole("button", { name: "Retry now" }).click();
   await expect(page.getByText(/search service took too long to respond/i)).toHaveCount(0);
   await expect.poll(() => statusReads, { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
-  await expect(page.getByText("No new candidates were added in this search.", { exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("No new companies were found in this search.", { exact: true })).toBeVisible({ timeout: 10_000 });
 
   expect(maxConcurrentStatusReads).toBe(1);
   expect(uncaughtPageErrors).toEqual([]);
@@ -192,7 +215,7 @@ test("an active search resumes after reload and blocks duplicate searches", asyn
 
   await page.reload();
   await expect.poll(() => statusReads).toBeGreaterThan(1);
-  await page.getByLabel(/city, region, country or postcode/i).fill("Rockhampton, Queensland");
+  await page.getByLabel(/city, region or postcode/i).fill("Rockhampton, Queensland");
   await expect(page.getByRole("button", { name: "Search in progress..." })).toBeDisabled();
   expect(startRequests).toBe(1);
 });
@@ -254,6 +277,7 @@ test("a missing job stops futile retries and explains the safe next step", async
 });
 
 test("a completed area search keeps saved workbook matches separate from new prospects", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 375, height: 812 });
   await page.route("**/internal/**", async (route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();
@@ -299,12 +323,18 @@ test("a completed area search keeps saved workbook matches separate from new pro
   await fillLocationAndStart(page);
 
   const savedSection = page.getByRole("region", { name: "Already on your list" });
-  const newSection = page.getByRole("region", { name: "New prospects" });
+  const newSection = page.getByRole("region", { name: "New companies found" });
   await expect(savedSection.getByText("Allnex")).toBeVisible({ timeout: 10_000 });
   await expect(savedSection.getByText(/Wacol, QLD, 4076/)).toBeVisible();
   await expect(newSection.getByText("New Wacol Engineering")).toBeVisible();
   await expect(savedSection.getByRole("link", { name: "View saved matches" })).toHaveAttribute("href", /cohort=known/);
-  await expect(newSection.getByRole("link", { name: "View new prospects" })).toHaveAttribute("href", /researchRun=/);
+  await expect(newSection.getByRole("heading", { name: /New companies found/ })).toBeVisible();
+  await expect(newSection.getByRole("link", { name: "View new companies" })).toHaveAttribute("href", /researchRun=/);
+  const dimensions = await page.evaluate(() => ({
+    viewport: document.documentElement.clientWidth,
+    content: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.content, "area search results should not overflow a phone viewport").toBeLessThanOrEqual(dimensions.viewport);
   await page.locator("div.surface-card").filter({ has: savedSection }).last().screenshot({
     path: testInfo.outputPath("saved-and-new-area-results.png"),
     animations: "disabled",

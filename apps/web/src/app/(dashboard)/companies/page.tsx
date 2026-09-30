@@ -22,6 +22,7 @@ import { PageLoading, PageError } from "@/components/shared/page-status";
 import { Pager, PAGE_SIZE } from "@/components/shared/pager";
 import { CompanyActivityPanel } from "@/components/shared/company-activity";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
+import { InfoPopover } from "@/components/shared/info-popover";
 import {
   extractResearchRunCompanyIds,
   filterCompaniesToResearchRun,
@@ -330,13 +331,11 @@ export default function CompaniesPage() {
 
   return (
     <div style={{ padding: "24px" }}>
-      <div style={{ marginBottom: "24px" }}>
+      <div className="genlead-page-heading">
         <h1 data-tour="companies-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
           Companies
         </h1>
-        <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginTop: "4px" }}>
-          Manage and review discovered companies
-        </p>
+        <InfoPopover label="Companies" text="Review saved records and new public-source prospects. Open a company to see its locations, contacts, evidence and notes." />
       </div>
 
       {researchRunId && (
@@ -350,7 +349,9 @@ export default function CompaniesPage() {
             <span style={{ marginLeft: "8px", color: "var(--color-text-secondary)", fontSize: "12px" }}>
               {researchRunLoading
                 ? "Loading results…"
-                : `${researchRunCompanyIds?.length ?? 0} ${researchRunCohort === "known" ? "saved matches from your list" : "new prospects"}`}
+                : researchRunCohort === "known"
+                  ? `${researchRunCompanyIds?.length ?? 0} saved matches from your list`
+                  : `${researchRunCompanyIds?.length ?? 0} new ${researchRunCompanyIds?.length === 1 ? "company" : "companies"} found`}
             </span>
           </div>
           <Link href="/companies" style={{ color: "var(--color-accent)", fontSize: "12px", textDecoration: "underline", textUnderlineOffset: "3px" }}>

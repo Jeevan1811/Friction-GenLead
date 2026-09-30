@@ -468,7 +468,7 @@ export function ResearchProgress({
           >
             <Building2 size={16} style={{ color: "var(--color-accent)" }} />
             <span style={{ fontWeight: 600 }}>{data.companies_found}</span>
-            new prospects
+            new {data.companies_found === 1 ? "company" : "companies"} found
           </div>
           {(data.known_companies_found ?? 0) > 0 && (
             <div

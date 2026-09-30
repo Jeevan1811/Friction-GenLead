@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/shared/status-badge";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { Pager, PAGE_SIZE } from "@/components/shared/pager";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
+import { InfoPopover } from "@/components/shared/info-popover";
 
 const priorityFilters = ["ALL", "PRIORITY", "SECONDARY", "OTHER"];
 
@@ -75,13 +76,11 @@ export default function ContactsPage() {
 
   return (
     <div style={{ padding: "24px" }}>
-      <div style={{ marginBottom: "24px" }}>
+      <div className="genlead-page-heading">
         <h1 data-tour="contacts-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
           Contacts
         </h1>
-        <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginTop: "4px" }}>
-          Discovered contacts across prospect companies
-        </p>
+        <InfoPopover label="Contacts" text="People and contact details linked to saved companies. Verify public-source details before using them." />
       </div>
 
       {error && (

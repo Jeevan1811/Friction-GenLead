@@ -8,6 +8,7 @@ import { getLocations, getCompanies } from "@/lib/api";
 import type { Location, Company } from "@/lib/types";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { GlobeView } from "@/components/shared/globe-view";
+import { InfoPopover } from "@/components/shared/info-popover";
 import { PageLoading, PageError } from "@/components/shared/page-status";
 import { Pager, PAGE_SIZE } from "@/components/shared/pager";
 import { useSheetAutoRefresh } from "@/lib/use-sheet-auto-refresh";
@@ -118,14 +119,12 @@ export default function LocationsPage() {
   );
 
   return (
-    <div style={{ padding: "24px" }}>
-      <div style={{ marginBottom: "24px" }}>
+    <div className="genlead-locations-page">
+      <div className="genlead-page-heading">
         <h1 data-tour="locations-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>
           Locations
         </h1>
-        <p style={{ fontSize: "13px", color: "var(--color-text-secondary)", marginTop: "4px" }}>
-          Saved workbook sites and public-source prospects are marked separately
-        </p>
+        <InfoPopover label="Locations" text="Explore saved sites and new prospects together. Red circles are from MSV’s workbook, teal diamonds are public-source prospects, and slate means source not recorded. Filters update the map and list." />
       </div>
 
       {error && (
@@ -138,70 +137,59 @@ export default function LocationsPage() {
         <PageLoading label="Loading locations..." />
       ) : (
         <>
-      {/* Globe map view */}
-      <GlobeView locations={filtered} companiesById={companyById} />
-
-      {/* Toolbar */}
-      <div
-        style={{
-          display: "flex",
-          gap: "12px",
-          marginBottom: "16px",
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
-      >
-        {/* Search */}
-        <div style={{ position: "relative", flex: "1 1 200px" }}>
-          <Search
-            size={16}
-            style={{
-              position: "absolute",
-              left: "12px",
-              top: "50%",
-              transform: "translateY(-50%)",
-              color: "var(--color-text-muted)",
-            }}
-          />
-          <input
-            type="text"
-            placeholder="Search locations..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="input-field"
-            style={{ paddingLeft: "36px", height: "36px" }}
-          />
+      <div className="genlead-location-workspace">
+        <aside className="genlead-location-rail" aria-label="Map filters">
+          <div className="genlead-location-rail-kicker">AREA VIEW</div>
+          <div className="genlead-location-rail-counts" role="status" aria-live="polite">
+            <div><strong>{filtered.length.toLocaleString()}</strong><span>locations</span></div>
+            <div><strong>{mappedCount.toLocaleString()}</strong><span>mapped</span></div>
+          </div>
+          <label htmlFor="location-search-filter">Find a location</label>
+          <div className="genlead-location-search-wrap">
+            <Search size={16} aria-hidden="true" />
+            <input
+              id="location-search-filter"
+              type="search"
+              placeholder="Company, suburb, postcode"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="input-field"
+            />
+          </div>
+          <div className="genlead-location-filter-row">
+            <div>
+              <label htmlFor="location-type-filter">Site type</label>
+              <select id="location-type-filter" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="input-field">
+                {locationTypes.map((type) => (
+                  <option key={type} value={type}>{type === "ALL" ? "All types" : type.charAt(0) + type.slice(1).toLowerCase()}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="location-status-filter">Status</label>
+              <select id="location-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="input-field">
+                {verificationStatuses.map((status) => (
+                  <option key={status} value={status}>{status === "ALL" ? "All statuses" : status.charAt(0) + status.slice(1).toLowerCase()}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          {(searchQuery || typeFilter !== "ALL" || statusFilter !== "ALL") && (
+            <button type="button" className="genlead-location-clear" onClick={() => { setSearchQuery(""); setTypeFilter("ALL"); setStatusFilter("ALL"); }} aria-label="Clear location filters">
+              Clear filters
+            </button>
+          )}
+        </aside>
+        <div className="genlead-location-map-pane">
+          <GlobeView locations={filtered} companiesById={companyById} focusKey={JSON.stringify([deferredSearchQuery, typeFilter, statusFilter])} focusResults={Boolean(deferredSearchQuery || typeFilter !== "ALL" || statusFilter !== "ALL")} />
         </div>
+      </div>
 
-        {/* Type filter */}
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="input-field"
-          style={{ width: "auto", height: "36px", minWidth: "130px" }}
-        >
-          {locationTypes.map((t) => (
-            <option key={t} value={t}>
-              {t === "ALL" ? "All Types" : t.charAt(0) + t.slice(1).toLowerCase()}
-            </option>
-          ))}
-        </select>
-
-        {/* Status filter */}
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="input-field"
-          style={{ width: "auto", height: "36px", minWidth: "140px" }}
-        >
-          {verificationStatuses.map((s) => (
-            <option key={s} value={s}>
-              {s === "ALL" ? "All Statuses" : s.charAt(0) + s.slice(1).toLowerCase()}
-            </option>
-          ))}
-        </select>
-
-        {/* View toggle */}
+      <div className="genlead-location-results-bar">
+        <div className="genlead-location-results-title">
+          <h2>Sites</h2>
+          <span>{filtered.length.toLocaleString()}</span>
+        </div>
         <div
           style={{
             display: "flex",
@@ -217,10 +205,10 @@ export default function LocationsPage() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              width: 36,
-              height: 36,
-              minHeight: 36,
-              minWidth: 36,
+              width: 44,
+              height: 44,
+              minHeight: 44,
+              minWidth: 44,
               border: "none",
               background: viewMode === "grid" ? "var(--color-accent-light)" : "transparent",
               color: viewMode === "grid" ? "var(--color-accent)" : "var(--color-text-muted)",
@@ -236,10 +224,10 @@ export default function LocationsPage() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              width: 36,
-              height: 36,
-              minHeight: 36,
-              minWidth: 36,
+              width: 44,
+              height: 44,
+              minHeight: 44,
+              minWidth: 44,
               border: "none",
               borderLeft: "1px solid var(--color-border)",
               background: viewMode === "list" ? "var(--color-accent-light)" : "transparent",
@@ -251,20 +239,6 @@ export default function LocationsPage() {
           </button>
         </div>
 
-        <span role="status" aria-live="polite" style={{ color: "var(--color-text-muted)", fontSize: "12px", whiteSpace: "nowrap" }}>
-          {filtered.length.toLocaleString()} results · {mappedCount.toLocaleString()} mapped
-        </span>
-        {(searchQuery || typeFilter !== "ALL" || statusFilter !== "ALL") && (
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => { setSearchQuery(""); setTypeFilter("ALL"); setStatusFilter("ALL"); }}
-            aria-label="Clear location filters"
-            style={{ minHeight: "36px" }}
-          >
-            Clear filters
-          </button>
-        )}
       </div>
 
       {/* Content */}
@@ -281,7 +255,7 @@ export default function LocationsPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 300px), 1fr))",
             gap: "12px",
           }}
         >
@@ -324,8 +298,8 @@ export default function LocationsPage() {
           })}
         </div>
       ) : (
-        <div className="surface-card" style={{ overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+        <div className="surface-card" style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", minWidth: "720px", borderCollapse: "collapse", fontSize: "13px" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--color-border)" }}>
                 {["Site Name", "Company", "Type", "Address", "Postcode", "Status"].map((h) => (

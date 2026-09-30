@@ -76,8 +76,13 @@ test("the map distinguishes workbook, public-source, mixed, and unknown-origin l
 
   await page.locator(".genlead-map-card .genlead-map-marker--mixed").click();
   const popup = page.locator(".leaflet-popup-content");
-  await expect(popup.getByText("Workbook site", { exact: true })).toBeVisible();
-  await expect(popup.getByText("Public-source site", { exact: true })).toBeVisible();
+  await expect(popup.getByText("Workbook Company", { exact: true })).toBeVisible();
+  await expect(popup.getByText("New Prospect", { exact: true })).toBeVisible();
+  await popup.getByRole('button', { name: 'View all companies', exact: true }).click();
+  const browser = page.getByRole('dialog', {name:'Companies in this map group',exact:true});
+  await expect(browser.getByText('Workbook site', {exact:true})).toBeVisible();
+  await expect(browser.getByText('Public-source site', {exact:true})).toBeVisible();
+  await browser.getByRole('button',{name:'Close',exact:true}).click();
 
   // Company metadata can refresh while the location rows stay identical.
   // The map marker and legend must reclassify when that source metadata changes.

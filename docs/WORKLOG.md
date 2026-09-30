@@ -1,5 +1,11 @@
 # Friction GenLead Worklog
 
+## 2026-10-01 - large map clusters and truthful company labels
+
+- Scoped `codex/genlead-map-cluster-fixes` from `b76bec0`. Cluster popup now contains a compact count/three-name preview and opens a viewport-bounded all-company drawer. Dedupe company cards, preserve every location in expandable site groups, paginate 20 cards, filter names/postcodes/source, use exact saved company links. No silent eight-row cap remains. Preserve OSM map and red/teal/unknown provenance.
+- Company names trim trading/legal fields and show ABN or name-unavailable fallback; whitespace trading names no longer mask valid legal names. Missing names sorted after named records, accessible row controls, blank status labelled. Old Firecrawl PDF/document results kept with review explanation; no data removed, no historical names guessed and no new backend source/filter behavior claimed.
+- Verified **33 unit checks**, typecheck, production build and **23 Playwright cases**, including 28-company mobile cluster, every page, source/search filtering, site expansion, actual record link, modal hit testing and resize recovery. Render `apps/web/test-results/overlay-layout-a-28-compan-eadec-ch-and-pagination-on-phones/cluster-company-browser-phone.png` inspected. Synthetic only; no production search/Sheet write. Ready for owner-authorized fixes-only deploy; broader visual/time-savings work not included.
+
 ## 2026-10-01 - earlier overlay defects, fixes-only release preparation
 
 - Closure: PR #38 merged at `2bdcf705986d85c1d7026436d273057accc4f5e8`; dependency install and VPS staged production build pass. Promoted build after validating exact paths, copied nonconflicting prior hashed static assets for already-open clients, retained old build `/opt/frictiongenlead/build-backups/f65b4b6-20261001-overlay`, restarted only web. API PID remained 158341; web online. A CR appended by PowerShell broke the script's final `git rev-parse HEAD` read, not deployment; separate read-only probes confirmed actual revision `2bdcf70`, tracked clean tree and healthy services. Web login 200; Settings unauthenticated 307; API health 200; jobs unauthenticated 401; external HTTPS login 200. No authenticated production workflow was available to retest. No redesign, account/provider/SMTP/env/Sheet changes or monitor recreation.

@@ -1497,6 +1497,19 @@ span a {
 }
 
 /* ---------- Page transition ---------- */
+.genlead-map-cluster-preview { margin: 12px 0; padding-left: 18px; color: var(--color-text-secondary); }
+.genlead-map-cluster-preview li { margin-bottom: 6px; overflow-wrap: anywhere; }
+.genlead-map-browser-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--color-text-secondary); font-size: 12px; }
+.genlead-map-browser-filters { display: grid; gap: 10px; margin: 12px 0 20px; }
+.genlead-map-browser-company { display: grid; gap: 8px; padding: 18px 0; border-bottom: 1px solid var(--color-border); overflow-wrap: anywhere; }
+.genlead-map-browser-company h3 { font-size: 15px; font-weight: 600; line-height: 1.4; }
+.genlead-map-browser-company small { font-size: 11px; color: var(--color-text-muted); }
+.genlead-map-browser-site { display: grid; gap: 4px; color: var(--color-text-secondary); font-size: 13px; line-height: 1.5; }
+.genlead-map-browser-company summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--color-text-secondary); font-size: 12px; }
+.genlead-map-browser-company details .genlead-map-browser-site { margin-bottom: 12px; }
+.genlead-map-browser-pagination { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 18px 0; font-size: 12px; }
+.genlead-map-browser-pagination .btn-secondary { padding: 0 12px; }
+
 /* Opacity only, deliberately. With `animation-fill-mode: both`, a `transform`
    here stays applied after the animation ends, and a transformed ancestor
    becomes the containing block for `position: fixed` descendants -- which

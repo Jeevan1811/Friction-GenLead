@@ -86,6 +86,7 @@ export default function CompaniesPage() {
   const [sortAsc, setSortAsc] = useState(true);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
   const [researchRunId, setResearchRunId] = useState<string | null>(null);
+  const [researchRunCohort, setResearchRunCohort] = useState<"new" | "known">("new");
   const [researchRunLocation, setResearchRunLocation] = useState("");
   const [researchRunCompanyIds, setResearchRunCompanyIds] = useState<string[] | null>(null);
   const [researchRunLoading, setResearchRunLoading] = useState(false);
@@ -137,18 +138,21 @@ export default function CompaniesPage() {
     const params = new URLSearchParams(window.location.search);
     const companyId = params.get("companyId");
     const runId = params.get("researchRun");
+    const cohort = params.get("cohort") === "known" ? "known" : "new";
     if (companyId) setSelectedCompanyId(companyId);
     if (!runId) return;
 
     let cancelled = false;
     setResearchRunId(runId);
+    setResearchRunCohort(cohort);
     setResearchRunLoading(true);
     setResearchRunError(null);
     void getResearchResults(runId)
       .then((results) => {
         if (cancelled) return;
         setResearchRunLocation(results.location);
-        setResearchRunCompanyIds(extractResearchRunCompanyIds(results.companies));
+        const cohortRows = cohort === "known" ? results.known_companies ?? [] : results.companies;
+        setResearchRunCompanyIds(extractResearchRunCompanyIds(cohortRows));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -344,7 +348,9 @@ export default function CompaniesPage() {
           <div aria-live="polite">
             <strong>{researchRunLocation || "Saved search"}</strong>
             <span style={{ marginLeft: "8px", color: "var(--color-text-secondary)", fontSize: "12px" }}>
-              {researchRunLoading ? "Loading results…" : `${researchRunCompanyIds?.length ?? 0} saved companies`}
+              {researchRunLoading
+                ? "Loading results…"
+                : `${researchRunCompanyIds?.length ?? 0} ${researchRunCohort === "known" ? "saved matches from your list" : "new prospects"}`}
             </span>
           </div>
           <Link href="/companies" style={{ color: "var(--color-accent)", fontSize: "12px", textDecoration: "underline", textUnderlineOffset: "3px" }}>

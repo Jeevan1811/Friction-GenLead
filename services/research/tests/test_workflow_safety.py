@@ -508,7 +508,7 @@ def test_saved_company_ids_recover_run_details_when_legacy_flag_is_false():
     row = {
         "job_id": "persisted-run-recovery-after-restart",
         "postcode": "",
-        "location_query": "Gladstone, Queensland, Australia",
+        "location_query": "Wacol, Queensland, Australia",
         "industry": "Heavy Industry",
         "roles": "[]",
         "status": "completed",
@@ -517,16 +517,23 @@ def test_saved_company_ids_recover_run_details_when_legacy_flag_is_false():
         "created_at": "2026-09-25T00:00:00+00:00",
         "updated_at": "2026-09-25T00:01:00+00:00",
         "company_ids": '["cmp-persisted"]',
+        "known_company_ids": '["cmp-existing"]',
         "contact_ids": "[]",
         "details_saved": "false",
     }
 
     class CanonicalSheets:
         async def read_companies(self):
-            return [{"company_id": "cmp-persisted", "company_name": "Northstar Industrial"}]
+            return [
+                {"company_id": "cmp-persisted", "company_name": "Northstar Industrial"},
+                {"company_id": "cmp-existing", "company_name": "Existing Wacol Company"},
+            ]
 
         async def read_contacts(self):
             return []
+
+        async def read_locations(self):
+            return [{"company_id": "cmp-existing", "suburb": "Wacol", "postcode": "4076"}]
 
     restored_job = Jev._job_from_run_row(row)
     restored = asyncio.run(Jev(sheets=CanonicalSheets()).get_job_results(restored_job))
@@ -534,6 +541,13 @@ def test_saved_company_ids_recover_run_details_when_legacy_flag_is_false():
     assert restored.details_available is True
     assert restored.companies_found == [
         {"company_id": "cmp-persisted", "company_name": "Northstar Industrial"}
+    ]
+    assert restored.known_companies_found == [
+        {
+            "company_id": "cmp-existing",
+            "company_name": "Existing Wacol Company",
+            "matched_locations": [{"company_id": "cmp-existing", "suburb": "Wacol", "postcode": "4076"}],
+        }
     ]
 
 

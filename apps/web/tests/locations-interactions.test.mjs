@@ -15,7 +15,7 @@ test("location cards and table rows open the related company with keyboard-acces
 });
 
 test("location filters share truthful map counts and a clear-filters action", () => {
-  assert.ok(locations.includes("<GlobeView locations={filtered} />"));
+  assert.ok(locations.includes("<GlobeView locations={filtered} companiesById={companyById} />"));
   assert.ok(locations.includes('aria-label="Clear location filters"'));
   assert.ok(map.includes("No locations match these filters."));
   assert.ok(map.includes("matching locations have no coordinates."));
@@ -24,8 +24,15 @@ test("location filters share truthful map counts and a clear-filters action", ()
 
 test("map rendering avoids permanent label nodes for every coordinate group", () => {
   assert.ok(map.includes("preferCanvas: true"));
-  assert.ok(map.includes("marker.bindTooltip(`${rows.length} locations`, { direction: \"center\""));
+  assert.ok(map.includes("marker.bindTooltip(markerTitle(rows, originByCompanyId)"));
   assert.ok(!map.includes("permanent: true"));
+  assert.ok(map.includes('aria-label="Map marker legend"'));
+  assert.ok(map.includes("From MSV’s workbook"));
+  assert.ok(map.includes("Public-source prospect"));
+  assert.ok(map.includes("Origin not recorded"));
+  assert.match(styles, /\.genlead-map-marker--saved\s*\{/);
+  assert.match(styles, /\.genlead-map-marker--prospect\s*\{/);
+  assert.match(styles, /\.genlead-map-marker--mixed\s*\{/);
   assert.match(styles, /\.genlead-map-summary\s*\{[^}]*bottom:\s*12px/s);
 });
 

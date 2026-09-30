@@ -15,6 +15,7 @@ import json
 import logging
 import math
 import re
+import unicodedata
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -24,7 +25,7 @@ from app.services.abr import ABRAdapter
 from app.services.crawler import WebsiteCrawler, SSRFError, CrawlLimitError
 from app.services.firecrawl_search import FirecrawlSearchDiscovery
 from app.services.event_logging import emit_event, exception_category
-from app.services.geo import postcode_centroid
+from app.services.geo import postcode_centroid, postcode_place
 from app.services.overture_discovery import OverturePlacesDiscovery
 from app.services.provider_health import describe_provider_exception, provider_health
 from app.services.resolver import EntityResolver, normalize_company_name
@@ -72,13 +73,16 @@ class ResearchJob:
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     steps: list[PipelineStep] = field(default_factory=list)
     companies_found: list[dict] = field(default_factory=list)
+    known_companies_found: list[dict] = field(default_factory=list)
     contacts_found: list[dict] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     historical_companies_count: int | None = None
     historical_contacts_count: int | None = None
     result_company_ids: list[str] = field(default_factory=list)
+    result_known_company_ids: list[str] = field(default_factory=list)
     result_contact_ids: list[str] = field(default_factory=list)
+    known_matches_available: bool = True
     details_available: bool = True
     details_saved: bool = False
     result_rows_synced: bool = True
@@ -90,6 +94,10 @@ class ResearchJob:
     @property
     def contacts_count(self) -> int:
         return self.historical_contacts_count if self.historical_contacts_count is not None else len(self.contacts_found)
+
+    @property
+    def known_companies_count(self) -> int:
+        return len(self.result_known_company_ids or self.known_companies_found)
 
 
 # In-memory job store (production would use Redis or similar)
@@ -247,6 +255,7 @@ class Jev:
             return job
 
         company_ids = set(job.result_company_ids)
+        known_company_ids = set(job.result_known_company_ids)
         contact_ids = set(job.result_contact_ids)
         if (
             job.historical_companies_count is not None
@@ -258,14 +267,58 @@ class Jev:
             raise RuntimeError("Saved research result IDs do not match the persisted summary counts.")
         companies = await self.sheets.read_companies()
         contacts = await self.sheets.read_contacts()
+        read_locations = getattr(self.sheets, "read_locations", None)
+        locations: list[dict] = []
+        if known_company_ids:
+            try:
+                if not callable(read_locations):
+                    raise RuntimeError("Locations reader is unavailable")
+                locations = await read_locations()
+            except Exception as exc:
+                job.known_matches_available = False
+                warning = (
+                    "Saved company locations could not be refreshed from Google Sheets; "
+                    "the saved search record is shown, but its current area evidence is unavailable."
+                )
+                if warning not in job.warnings:
+                    job.warnings.append(warning)
+                emit_event(
+                    logger,
+                    event="search.saved_area_results_unavailable",
+                    category=exception_category(exc, fallback="sheet_read_failed"),
+                    level=logging.WARNING,
+                    exception=exc,
+                    correlation_id=job.job_id,
+                )
         job.companies_found = [
             row for row in companies if str(row.get("company_id", "")) in company_ids
+        ]
+        known_locations_by_company: dict[str, list[dict]] = {}
+        for location in locations:
+            company_id = str(location.get("company_id", "")).strip()
+            if company_id in known_company_ids and _location_matches_area(
+                job.location_query or job.postcode, location
+            ):
+                known_locations_by_company.setdefault(company_id, []).append(location)
+        job.known_companies_found = [
+            {
+                **row,
+                "matched_locations": known_locations_by_company.get(
+                    str(row.get("company_id", "")), []
+                ),
+            }
+            for row in companies
+            if str(row.get("company_id", "")) in known_company_ids
         ]
         job.contacts_found = [
             row for row in contacts if str(row.get("contact_id", "")) in contact_ids
         ]
 
-        if len(job.companies_found) != len(company_ids) or len(job.contacts_found) != len(contact_ids):
+        if (
+            len(job.companies_found) != len(company_ids)
+            or len(job.known_companies_found) != len(known_company_ids)
+            or len(job.contacts_found) != len(contact_ids)
+        ):
             raise RuntimeError("Saved research results are incomplete in the canonical Sheets tabs.")
         return job
 
@@ -328,7 +381,9 @@ class Jev:
         except (json.JSONDecodeError, TypeError):
             roles = []
         company_ids = _json_string_list(row.get("company_ids"))
+        known_company_ids = _json_string_list(row.get("known_company_ids"))
         contact_ids = _json_string_list(row.get("contact_ids"))
+        warnings = _json_string_list(row.get("warnings"))
         details_saved = str(row.get("details_saved", "")).strip().casefold() == "true"
         job = ResearchJob(
             job_id=str(row.get("job_id", "")),
@@ -344,11 +399,15 @@ class Jev:
             created_at=created_at,
             updated_at=updated_at,
             result_company_ids=company_ids,
+            result_known_company_ids=known_company_ids,
             result_contact_ids=contact_ids,
+            known_matches_available=not any(
+                "Locations tab is unavailable" in warning for warning in warnings
+            ),
             # Older summaries may have a stale false flag even though the exact
             # canonical row IDs were saved. Let get_job_results verify those IDs
             # against Companies/Contacts; it still fails closed if any are absent.
-            details_available=details_saved or bool(company_ids or contact_ids),
+            details_available=details_saved or bool(company_ids or known_company_ids or contact_ids),
             details_saved=details_saved,
         )
         job.historical_companies_count = _safe_int(row.get("companies_found"))
@@ -356,7 +415,7 @@ class Jev:
         error_summary = str(row.get("error_summary", "")).strip()
         if error_summary:
             job.errors.append(error_summary)
-        job.warnings = _json_string_list(row.get("warnings"))
+        job.warnings = warnings
         return job
 
     async def _persist_job(self, job: ResearchJob) -> None:
@@ -387,6 +446,14 @@ class Jev:
             "company_ids": json.dumps(
                 job.result_company_ids
                 or [str(company.get("company_id", "")) for company in job.companies_found if company.get("company_id")]
+            ),
+            "known_company_ids": json.dumps(
+                job.result_known_company_ids
+                or [
+                    str(company.get("company_id", ""))
+                    for company in job.known_companies_found
+                    if company.get("company_id")
+                ]
             ),
             "contact_ids": json.dumps(
                 job.result_contact_ids
@@ -741,6 +808,71 @@ class Jev:
             source_errors: list[str] = []
             source_issues: list[dict[str, str]] = []
 
+            # Resolve the saved cohort first. It is a local Sheets lookup and
+            # must remain available even when every public discovery source is
+            # temporarily unavailable.
+            existing_rows: list[dict] = []
+            location_rows: list[dict] = []
+            rejected_rows: list[dict] = []
+            if self.sheets:
+                existing_rows = await self.sheets.read_companies()
+                rejected_rows = await self.sheets.read_rejected()
+                read_locations = getattr(self.sheets, "read_locations", None)
+                if callable(read_locations):
+                    try:
+                        location_rows = await read_locations()
+                    except Exception as exc:
+                        job.known_matches_available = False
+                        job.warnings.append(
+                            "Saved companies could not be checked against this area because the Locations tab is unavailable. "
+                            "New public-source results remain separate."
+                        )
+                        emit_event(
+                            logger,
+                            event="search.saved_area_matches_unavailable",
+                            category=exception_category(exc, fallback="sheet_read_failed"),
+                            level=logging.WARNING,
+                            exception=exc,
+                            correlation_id=job.job_id,
+                        )
+                read_error = getattr(self.sheets, "tab_read_error", None)
+                if callable(read_error):
+                    failed_tabs = [tab for tab in ("companies", "rejected") if read_error(tab)]
+                    if failed_tabs:
+                        raise RuntimeError(
+                            "Could not safely deduplicate prospects because the live Google Sheet "
+                            f"tab read failed: {', '.join(failed_tabs)}."
+                        )
+                    if callable(read_locations) and read_error("locations"):
+                        job.known_matches_available = False
+                        if not any("Locations tab is unavailable" in warning for warning in job.warnings):
+                            job.warnings.append(
+                                "Saved companies could not be checked against this area because the Locations tab is unavailable. "
+                                "New public-source results remain separate."
+                            )
+
+            company_rows_by_id = {
+                str(row.get("company_id", "")).strip(): row
+                for row in existing_rows
+                if str(row.get("company_id", "")).strip()
+            }
+            known_locations_by_company: dict[str, list[dict]] = {}
+            for location in location_rows:
+                company_id = str(location.get("company_id", "")).strip()
+                if company_id and _location_matches_area(location_query, location):
+                    known_locations_by_company.setdefault(company_id, []).append(location)
+            matching_known_ids = set(known_locations_by_company)
+            job.result_known_company_ids = [
+                company_id for company_id in company_rows_by_id if company_id in matching_known_ids
+            ]
+            job.known_companies_found = [
+                {
+                    **company_rows_by_id[company_id],
+                    "matched_locations": known_locations_by_company.get(company_id, []),
+                }
+                for company_id in job.result_known_company_ids
+            ]
+
             if re.fullmatch(r"4\d{3}", location_query):
                 try:
                     abr_results = await self.abr.search_by_postcode(location_query, job.industry)
@@ -813,18 +945,50 @@ class Jev:
                     "jev", RuntimeError("no research source completed")
                 )
                 provider_health.record_issue("jev", issue)
+                saved_only = bool(job.known_companies_found)
                 emit_event(
                     logger,
                     event="search.discovery_sources_exhausted",
-                    category="all_sources_failed" if source_failures else "no_sources_configured",
-                    level=logging.ERROR,
+                    category=(
+                        "all_sources_failed_saved_matches_available"
+                        if saved_only
+                        else "all_sources_failed" if source_failures else "no_sources_configured"
+                    ),
+                    level=logging.WARNING if saved_only else logging.ERROR,
                     exception=source_failures[0][1] if source_failures else None,
                     correlation_id=job.job_id,
-                    outcome="failed",
+                    outcome="saved_only" if saved_only else "failed",
                     sources_succeeded=0,
                     sources_failed=len(source_failures),
+                    saved_area_matches=len(job.known_companies_found),
                 )
                 discovery_failure_emitted = True
+                job.warnings.extend(source_errors)
+                if saved_only:
+                    job.warnings.append(
+                        "New public-source discovery did not complete; saved area matches are still shown."
+                    )
+                    step.result = {
+                        "public_source_matches": 0,
+                        "saved_area_matches": len(job.known_companies_found),
+                        "already_known_or_rejected_skipped": 0,
+                        "industry_verified": 0,
+                        "websites_available": 0,
+                    }
+                    step.status = StepStatus.COMPLETED
+                    step.completed_at = datetime.now(timezone.utc)
+                    emit_event(
+                        logger,
+                        event="search.discovery_completed",
+                        category="saved_matches_only",
+                        level=logging.WARNING,
+                        correlation_id=job.job_id,
+                        outcome="saved_only",
+                        sources_succeeded=0,
+                        sources_failed=len(source_failures),
+                        candidates_found=0,
+                    )
+                    return
                 raise RuntimeError("; ".join(source_errors) or issue["message"])
 
             if source_issues:
@@ -834,34 +998,6 @@ class Jev:
 
             raw_results = _blend_public_source_candidates(raw_results, web_results)
             job.warnings.extend(source_errors)
-            if not raw_results and source_errors:
-                emit_event(
-                    logger,
-                    event="search.discovery_returned_no_candidates",
-                    category="no_candidates_after_partial_failure",
-                    level=logging.ERROR,
-                    correlation_id=job.job_id,
-                    outcome="failed",
-                    sources_succeeded=successful_sources,
-                    sources_failed=len(source_failures),
-                    candidates_found=0,
-                )
-                discovery_failure_emitted = True
-                raise RuntimeError("No public discovery source completed successfully: " + "; ".join(source_errors))
-
-            existing_rows: list[dict] = []
-            rejected_rows: list[dict] = []
-            if self.sheets:
-                existing_rows = await self.sheets.read_companies()
-                rejected_rows = await self.sheets.read_rejected()
-                read_error = getattr(self.sheets, "tab_read_error", None)
-                if callable(read_error):
-                    failed_tabs = [tab for tab in ("companies", "rejected") if read_error(tab)]
-                    if failed_tabs:
-                        raise RuntimeError(
-                            "Could not safely deduplicate prospects because the live Google Sheet "
-                            f"tab read failed: {', '.join(failed_tabs)}."
-                        )
 
             existing_abns: set[str] = set()
             existing_names: set[str] = set()
@@ -1141,6 +1277,7 @@ class Jev:
 
             step.result = {
                 "public_source_matches": len(job.companies_found),
+                "saved_area_matches": len(job.known_companies_found),
                 "already_known_or_rejected_skipped": max(0, len(raw_results) - len(job.companies_found)),
                 "industry_verified": 0,
                 "websites_available": sum(bool(company.get("website")) for company in discovered),
@@ -1496,6 +1633,132 @@ def _blend_public_source_candidates(
     interleaved.extend(web_pool[web_index:])
     interleaved.extend(abr_results[8:])
     return interleaved
+
+
+_STATE_KEYS = {
+    "act": "australian capital territory",
+    "australian capital territory": "australian capital territory",
+    "nsw": "new south wales",
+    "new south wales": "new south wales",
+    "nt": "northern territory",
+    "northern territory": "northern territory",
+    "qld": "queensland",
+    "queensland": "queensland",
+    "sa": "south australia",
+    "south australia": "south australia",
+    "tas": "tasmania",
+    "tasmania": "tasmania",
+    "vic": "victoria",
+    "victoria": "victoria",
+    "wa": "western australia",
+    "western australia": "western australia",
+}
+_COUNTRY_KEYS = {
+    "au": "australia",
+    "aus": "australia",
+    "australia": "australia",
+    "uk": "united kingdom",
+    "gb": "united kingdom",
+    "united kingdom": "united kingdom",
+    "us": "united states",
+    "usa": "united states",
+    "united states": "united states",
+}
+_AREA_QUALIFIERS = re.compile(
+    r"\b(?:australian capital territory|new south wales|northern territory|south australia|"
+    r"western australia|queensland|tasmania|victoria|act|nsw|nt|qld|sa|tas|vic|wa|"
+    r"australia|aus|au)\b",
+    re.IGNORECASE,
+)
+
+
+def _normalized_area_text(value: object) -> str:
+    decomposed = unicodedata.normalize("NFKD", str(value or "").casefold())
+    ascii_text = "".join(character for character in decomposed if not unicodedata.combining(character))
+    return " ".join(re.findall(r"[a-z0-9]+", ascii_text))
+
+
+def _area_qualifier_keys(query: str, aliases: dict[str, str]) -> set[str]:
+    normalized = _normalized_area_text(query)
+    return {
+        canonical
+        for alias, canonical in aliases.items()
+        if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", normalized)
+    }
+
+
+def _location_matches_area(query: str, location: dict) -> bool:
+    """Match a saved site to an area using only its location fields.
+
+    Exact postcodes, suburb/address text, and the bundled postcode-place name
+    are considered. Company names are deliberately excluded so a familiar
+    business elsewhere cannot be pulled into an area search by name alone.
+    """
+    query_text = str(query or "").strip()
+    if not query_text:
+        return False
+
+    query_postcodes = set(re.findall(r"(?<!\d)\d{4}(?!\d)", query_text))
+    stored_postcodes: set[str] = set()
+    for value in (location.get("postcode"), location.get("raw_postcode")):
+        stored_postcodes.update(re.findall(r"(?<!\d)\d{4}(?!\d)", str(value or "")))
+
+    state_keys = _area_qualifier_keys(query_text, _STATE_KEYS)
+    stored_state = _STATE_KEYS.get(_normalized_area_text(location.get("state")))
+    state_matches = bool(state_keys and stored_state in state_keys)
+    # A postcode match must not override an explicitly conflicting state or country.
+    if state_keys and stored_state and not state_matches:
+        return False
+    country_keys = _area_qualifier_keys(query_text, _COUNTRY_KEYS)
+    stored_country = _COUNTRY_KEYS.get(_normalized_area_text(location.get("country")))
+    country_matches = bool(country_keys and stored_country in country_keys)
+    australian_states = {
+        "australian capital territory",
+        "new south wales",
+        "northern territory",
+        "queensland",
+        "south australia",
+        "tasmania",
+        "victoria",
+        "western australia",
+    }
+    if country_keys and stored_country and not (country_keys & {stored_country}):
+        return False
+    if "australia" in country_keys and stored_state in australian_states and not stored_country:
+        country_matches = True
+
+    place_name = _normalized_area_text(_AREA_QUALIFIERS.sub(" ", query_text))
+    place_name = re.sub(r"\b\d{4}\b", " ", place_name)
+    place_name = " ".join(place_name.split())
+
+    if not place_name:
+        qualifier_matches: list[bool] = []
+        if state_keys:
+            qualifier_matches.append(state_matches)
+        if country_keys:
+            qualifier_matches.append(country_matches)
+        if qualifier_matches:
+            return all(qualifier_matches)
+        return bool(query_postcodes & stored_postcodes)
+
+    location_names = [
+        _normalized_area_text(location.get("suburb")),
+        _normalized_area_text(location.get("address")),
+    ]
+    postcode_values = stored_postcodes or set(
+        re.findall(r"\d{4}", str(location.get("postcode") or ""))
+    )
+    location_names.extend(
+        _normalized_area_text(postcode_place(postcode))
+        for postcode in postcode_values
+        if postcode_place(postcode)
+    )
+    phrase = re.compile(rf"(?<![a-z0-9]){re.escape(place_name)}(?![a-z0-9])")
+    if any(name == place_name or phrase.search(name) for name in location_names if name):
+        return True
+    # An exact postcode is sufficient only when no textual location evidence
+    # exists to contradict the place named by the caller.
+    return bool(query_postcodes & stored_postcodes) and not any(location_names)
 
 
 def _json_string_list(value: object) -> list[str]:

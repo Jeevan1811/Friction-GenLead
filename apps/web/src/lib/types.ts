@@ -171,6 +171,8 @@ export interface JobRun {
   industry?: string | null;
   status: string; // includes "interrupted" when a service restart stopped an in-flight job
   companiesFound: number;
+  knownCompaniesFound?: number;
+  knownMatchesAvailable?: boolean;
   contactsFound: number;
   createdAt: string;
   updatedAt?: string;

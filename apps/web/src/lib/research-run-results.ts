@@ -15,8 +15,13 @@ export function extractResearchRunCompanyIds(rows: unknown): string[] {
 }
 
 /** Build a deep link to one saved run, optionally opening a company drawer. */
-export function buildResearchRunCompaniesHref(jobId: string, companyId?: string): string {
+export function buildResearchRunCompaniesHref(
+  jobId: string,
+  companyId?: string,
+  cohort: "new" | "known" = "new",
+): string {
   const params = new URLSearchParams({ researchRun: jobId });
+  if (cohort === "known") params.set("cohort", cohort);
   if (companyId) params.set("companyId", companyId);
   return `/companies?${params.toString()}`;
 }

@@ -3,18 +3,70 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MapPin } from "lucide-react";
 import type { Map as LeafletMap, LayerGroup as LeafletLayerGroup } from "leaflet";
-import type { Location } from "@/lib/types";
+import type { Company, Location } from "@/lib/types";
 
 interface GlobeViewProps {
   locations: Location[];
+  companiesById: ReadonlyMap<string, Company>;
 }
 
 type LeafletModule = typeof import("leaflet");
+type MarkerOrigin = "saved" | "prospect" | "unknown";
+
+const PUBLIC_SOURCES = new Set([
+  "ABR",
+  "FIRECRAWL_SEARCH",
+  "OPENSTREETMAP",
+  "OVERTURE_MAPS",
+]);
+
+function originForCompany(company: Company | undefined): MarkerOrigin {
+  const source = String(company?.source ?? "").trim().toUpperCase();
+  if (["LEGACY_EXCEL", "LEGACY_SHEET", "MSV_WORKBOOK"].includes(source)) return "saved";
+  if (PUBLIC_SOURCES.has(source)) return "prospect";
+  return "unknown";
+}
+
+const ORIGIN_LABELS: Record<MarkerOrigin, string> = {
+  saved: "From MSV’s workbook",
+  prospect: "Public-source prospect",
+  unknown: "Origin not recorded",
+};
+
+function countOrigins(rows: Location[], origins: ReadonlyMap<string, MarkerOrigin>) {
+  const counts: Record<MarkerOrigin, number> = { saved: 0, prospect: 0, unknown: 0 };
+  for (const row of rows) counts[origins.get(row.companyId) ?? "unknown"] += 1;
+  return counts;
+}
+
+function markerKind(counts: Record<MarkerOrigin, number>): MarkerOrigin | "mixed" {
+  const present = (Object.keys(counts) as MarkerOrigin[]).filter((key) => counts[key] > 0);
+  return present.length === 1 ? present[0] : "mixed";
+}
+
+function markerIconHtml(rows: Location[], origins: ReadonlyMap<string, MarkerOrigin>): string {
+  const counts = countOrigins(rows, origins);
+  const total = Math.max(rows.length, 1);
+  const savedStop = Math.round((counts.saved / total) * 100);
+  const prospectStop = savedStop + Math.round((counts.prospect / total) * 100);
+  const kind = markerKind(counts);
+  const label = rows.length > 1 ? `<b class="genlead-map-marker-count">${rows.length}</b>` : "";
+  return `<span class="genlead-map-marker genlead-map-marker--${kind}" style="--genlead-saved-stop:${savedStop}%;--genlead-prospect-stop:${prospectStop}%" aria-hidden="true">${label}</span>`;
+}
+
+function markerTitle(rows: Location[], origins: ReadonlyMap<string, MarkerOrigin>): string {
+  const counts = countOrigins(rows, origins);
+  return [
+    counts.saved ? `${counts.saved} from MSV’s workbook` : "",
+    counts.prospect ? `${counts.prospect} public-source` : "",
+    counts.unknown ? `${counts.unknown} origin not recorded` : "",
+  ].filter(Boolean).join(" · ");
+}
 
 const DEFAULT_CENTER: [number, number] = [15, 0];
 const DEFAULT_ZOOM = 2;
 
-function PopupContent({ rows }: { rows: Location[] }): HTMLElement {
+function PopupContent({ rows, origins }: { rows: Location[]; origins: ReadonlyMap<string, MarkerOrigin> }): HTMLElement {
   const root = document.createElement("div");
   root.className = "genlead-map-popup";
 
@@ -24,6 +76,12 @@ function PopupContent({ rows }: { rows: Location[] }): HTMLElement {
     const name = document.createElement("strong");
     name.textContent = row.siteName || "Saved business location";
     item.appendChild(name);
+
+    const origin = document.createElement("span");
+    const kind = origins.get(row.companyId) ?? "unknown";
+    origin.className = `genlead-map-origin-badge genlead-map-origin-badge--${kind}`;
+    origin.textContent = ORIGIN_LABELS[kind];
+    item.appendChild(origin);
 
     const detail = [row.suburb, row.state, row.postcode, row.country]
       .filter(Boolean)
@@ -49,7 +107,7 @@ function PopupContent({ rows }: { rows: Location[] }): HTMLElement {
   return root;
 }
 
-export function GlobeView({ locations }: GlobeViewProps) {
+export function GlobeView({ locations, companiesById }: GlobeViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const leafletRef = useRef<LeafletModule | null>(null);
@@ -59,6 +117,15 @@ export function GlobeView({ locations }: GlobeViewProps) {
   const mappableLocations = useMemo(
     () => locations.filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lng)),
     [locations],
+  );
+  const originByCompanyId = useMemo(() => {
+    const result = new Map<string, MarkerOrigin>();
+    for (const [companyId, company] of companiesById) result.set(companyId, originForCompany(company));
+    return result;
+  }, [companiesById]);
+  const originCounts = useMemo(
+    () => countOrigins(mappableLocations, originByCompanyId),
+    [mappableLocations, originByCompanyId],
   );
 
   useEffect(() => {
@@ -130,15 +197,19 @@ export function GlobeView({ locations }: GlobeViewProps) {
       const lat = Number(first.lat);
       const lng = Number(first.lng);
       points.push([lat, lng]);
-      const marker = leaflet.circleMarker([lat, lng], {
-        radius: rows.length > 1 ? 9 : 7,
-        color: "#FFFFFF",
-        weight: 2,
-        fillColor: "#C8372D",
-        fillOpacity: 0.95,
+      const marker = leaflet.marker([lat, lng], {
+        title: markerTitle(rows, originByCompanyId),
+        alt: markerTitle(rows, originByCompanyId),
+        keyboard: true,
+        icon: leaflet.divIcon({
+          className: "genlead-map-div-icon",
+          html: markerIconHtml(rows, originByCompanyId),
+          iconSize: [30, 30],
+          iconAnchor: [15, 15],
+        }),
       });
-      marker.bindPopup(PopupContent({ rows }));
-      if (rows.length > 1) marker.bindTooltip(`${rows.length} locations`, { direction: "center", className: "genlead-map-count" });
+      marker.bindPopup(PopupContent({ rows, origins: originByCompanyId }));
+      if (rows.length > 1) marker.bindTooltip(markerTitle(rows, originByCompanyId), { direction: "top", className: "genlead-map-count" });
       marker.addTo(layer);
     }
 
@@ -149,7 +220,7 @@ export function GlobeView({ locations }: GlobeViewProps) {
     } else {
       map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
     }
-  }, [mappableLocations, status]);
+  }, [mappableLocations, originByCompanyId, status]);
 
   return (
     <>
@@ -176,6 +247,21 @@ export function GlobeView({ locations }: GlobeViewProps) {
                 : `${mappableLocations.length.toLocaleString()} of ${locations.length.toLocaleString()} matching locations mapped${locations.length > mappableLocations.length ? ` · ${ (locations.length - mappableLocations.length).toLocaleString()} without coordinates` : ""}.`}
           </div>
         )}
+      </div>
+      <div className="genlead-map-legend" role="list" aria-label="Map marker legend">
+        {(["saved", "prospect", "unknown"] as MarkerOrigin[]).map((origin) => (
+          <div
+            className="genlead-map-legend-item"
+            role="listitem"
+            aria-label={`${ORIGIN_LABELS[origin]}: ${originCounts[origin].toLocaleString()} mapped locations`}
+            key={origin}
+          >
+            <span className={`genlead-map-marker genlead-map-marker--${origin}`} aria-hidden="true" />
+            <span>{ORIGIN_LABELS[origin]}</span>
+            <strong>{originCounts[origin].toLocaleString()}</strong>
+            <span className="genlead-map-legend-unit">locations</span>
+          </div>
+        ))}
       </div>
       <p className="genlead-map-credit">
         Map data © OpenStreetMap contributors · <a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noreferrer">Report a map issue</a>

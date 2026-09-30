@@ -137,6 +137,8 @@ export async function getResearchStatus(jobId: string, signal?: AbortSignal) {
     postcode: string;
     status: string;
     companies_found: number;
+    known_companies_found?: number;
+    known_matches_available?: boolean;
     contacts_found: number;
     steps: Array<{
       name: string;
@@ -158,6 +160,8 @@ export async function getResearchResults(jobId: string) {
     location: string;
     status: string;
     companies: unknown[];
+    known_companies: unknown[];
+    known_matches_available: boolean;
     contacts: unknown[];
     warnings: string[];
   }>(`/internal/ops/research/${jobId}/results`);
@@ -366,6 +370,8 @@ interface JobListRow {
   industry: string | null;
   status: string;
   companies_found: number;
+  known_companies_found?: number;
+  known_matches_available?: boolean;
   contacts_found: number;
   created_at: string;
   updated_at?: string;
@@ -382,6 +388,8 @@ export async function getJobs(): Promise<JobRun[]> {
     industry: r.industry,
     status: r.status,
     companiesFound: r.companies_found,
+    knownCompaniesFound: r.known_companies_found ?? 0,
+    knownMatchesAvailable: r.known_matches_available ?? true,
     contactsFound: r.contacts_found,
     createdAt: r.created_at,
     updatedAt: r.updated_at,

@@ -1,5 +1,14 @@
 # Friction GenLead Worklog
 
+## 2026-10-01 - earlier overlay defects, fixes-only release preparation
+
+- Owner sequencing: finish previous popup/dashboard fixes first, deploy fixes with existing live design; keep larger cluster/data-quality/light-theme/time-savings work for the next local stage.
+- Isolated `codex/genlead-overlay-hotfix` from `origin/main` `24289a6`. No redesign CSS, header/sidebar overhaul, usage panel, local auth-bypass preview or backend/data changes copied into release. GitHub access verified for Jeevan1811. Read-only VPS revision `f65b4b6`; login/API health 200. No production mutation yet.
+- Regression evidence: provenance grid collapsed title/address to <1px; measured-content panels previously guessed their height; nested Escape closed both confirmation and drawer. New browser gate caught responsive layout remount discarding an open map popup, then transient margin overflow at 390px. One stable page subtree and CSS media margins resolve these. Portal overlays address a separate render finding where mobile nav/chat covered drawer actions.
+- QA: initial scoped run 20/21; after responsive fix 21/21, with 30 unit tests, typecheck and optimized build passed. Final portal visibility and staged bundle promotion tests still pending. Desktop/320px popup renders inspected; all test data fictional and provider tiles deliberately blocked. Never claim these fixtures prove live Sheet parity.
+- Final gate: staged optimized build passed; local `.next` moved to a validated recoverable `.next-overlay-qa-backup`, completed staged directory promoted to `.next`, then all **21/21 Playwright** cases passed under default runtime config. Unit suite **30/30** and TypeScript pass. The final phone drawer render and action hit-test confirm nav/chat no longer cover its buttons. Local staging proves the bundle can run after promotion without persisting the staging flag.
+- Build staging is scoped to `.next-staged`, with the running `.next` left intact and a recoverable previous build planned. No env/credentials, live searches/Sheet writes, API restarts or other VPS services changed. Hourly monitor remains deleted. Next: fixes-only release, then later requests locally.
+
 ## 2026-09-30 — concise dashboard/map layout, QA and deployment
 
 - Truth: **DEPLOYED; LOCAL BROWSER QA PASSED; LIMITED PRODUCTION SMOKE PASSED**. Continued the same scoped worktree `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-area-results-map` on `codex/genlead-mobile-nav-qa`, starting at `2ea93c7` (`origin/main`); retained all existing task changes. Map/UI merge `11483e2` via PR #33, final Settings polish `f65b4b6` via PR #35; PR #34 only updated the post-deploy ledger.

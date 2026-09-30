@@ -46,56 +46,22 @@ export default function DashboardLayout({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
 
-  if (isMobile) {
-    return (
-      <ToastProvider>
-        <DashboardTourProvider>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            minHeight: "100dvh",
-          }}
-        >
-          <Header onOpenCommandPalette={() => setCmdOpen(true)} />
-          <main
-            style={{
-              flex: 1,
-              overflowY: "auto",
-              paddingBottom: "calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + 16px)",
-            }}
-          >
-            <div
-              key={pathname}
-              className="page-transition"
-            >
-              {children}
-            </div>
-          </main>
-          <MobileNav />
-          <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
-          <ChatSidebar />
-        </div>
-        </DashboardTourProvider>
-      </ToastProvider>
-    );
-  }
-
   return (
     <ToastProvider>
       <DashboardTourProvider>
       <div style={{ display: "flex", minHeight: "100dvh" }}>
-        <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+        <div style={{ display: isMobile ? "none" : "contents" }}>
+          <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
+        </div>
         <div
+          className="genlead-dashboard-content"
+          data-collapsed={collapsed}
           style={{
-            marginLeft: collapsed
-              ? "var(--sidebar-collapsed-width)"
-              : "var(--sidebar-width)",
             flex: 1,
+            minWidth: 0,
             display: "flex",
             flexDirection: "column",
             minHeight: "100dvh",
-            transition: "margin-left var(--transition-normal)",
           }}
         >
           <Header onOpenCommandPalette={() => setCmdOpen(true)} />
@@ -103,6 +69,7 @@ export default function DashboardLayout({
             style={{
               flex: 1,
               overflowY: "auto",
+              paddingBottom: isMobile ? "calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px) + 16px)" : undefined,
             }}
           >
             <div
@@ -113,6 +80,7 @@ export default function DashboardLayout({
             </div>
           </main>
         </div>
+        {isMobile && <MobileNav />}
         <CommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
         <ChatSidebar />
       </div>

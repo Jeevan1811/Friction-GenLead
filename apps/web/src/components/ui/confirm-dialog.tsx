@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -70,6 +71,7 @@ export function ConfirmDialog({
 
   useEffect(() => {
     if (open) {
+      const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       cancelBtnRef.current?.focus();
       document.addEventListener("keydown", handleKeyDown);
       /* Prevent body scroll */
@@ -78,13 +80,14 @@ export function ConfirmDialog({
       return () => {
         document.removeEventListener("keydown", handleKeyDown);
         document.body.style.overflow = prev;
+        if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
       };
     }
   }, [open, handleKeyDown]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div
       style={{
         position: "fixed",
@@ -184,7 +187,7 @@ export function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>, document.body
   );
 }
 

@@ -9,6 +9,8 @@ test-results/
 
 # Build output
 .next/
+.next-staged/
+.next-overlay-qa-backup/
 out/
 dist/
 build/

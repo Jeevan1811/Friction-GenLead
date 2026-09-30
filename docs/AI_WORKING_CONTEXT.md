@@ -4,6 +4,8 @@ Last updated: 2026-10-01 (Asia/Singapore)
 
 ## Current task - fixes-only overlay release
 
+- Release update: PR #37 merged at `9a33d53`; production source was fast-forwarded, but its staged build failed on a missing explicit `@types/react-dom` dependency. **The old serving build remains live; nothing was swapped or restarted.** Added the type package/lockfile and passed local typecheck. Dependency-only follow-up PR/build/deploy still pending; do not claim the fixes are live yet.
+
 - Truth: **LOCAL FIXES; FINAL STAGED-BUILD QA IN PROGRESS; NOT DEPLOYED**. Private MSV dashboard. Scoped worktree `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-overlay-hotfix`, branch `codex/genlead-overlay-hotfix`, base `24289a673e0eff77b5efc6c1c3e299d24b57b34a`. Production read-only check found `f65b4b6fb6bd3cf018ea941fb7c263c685bf8a2f`, login/API health 200.
 - Owner requested finishing the earlier popup/dashboard defects before the new clustered-location panel, missing-name/data-quality work, light-theme redesign and time-savings charts. **Deploy fixes only; retain original live design.** Redesign and Jev outcomes UI remain uncommitted/local in `work\genlead-area-results-map` on `codex/genlead-dashboard-reference-redesign`; do not stage that worktree wholesale. No background monitor should be restored.
 - Popup grid allowed the provenance badge to collapse the title/address to <1px. Names, badges and addresses now use independent rows with bounded sizing, scroll, 44px close and exact-company links. Hidden map chrome no longer covers the close target; tile failures remain visible outside the canvas. Screen-space cluster redraw preserves selection.

@@ -2,6 +2,8 @@
 
 ## 2026-10-01 - earlier overlay defects, fixes-only release preparation
 
+- PR #37 merged at `9a33d53ae661efd7845d98aabb2d15c3f6027976`. First VPS staged build stopped at TypeScript because `@types/react-dom` was not explicitly declared; the local resolver had an ambient copy outside this repo. No bundle swap/restart occurred, and both live web/API probes still returned 200. Added the matching React DOM type dependency to web devDependencies and lockfile; local clean dependency resolution/typecheck pass. Dependency-only follow-up release required before retrying. Preserve the generated `next-env.d.ts` staging change until explicitly reversed; no unrelated dirty file may be swept up.
+
 - Owner sequencing: finish previous popup/dashboard fixes first, deploy fixes with existing live design; keep larger cluster/data-quality/light-theme/time-savings work for the next local stage.
 - Isolated `codex/genlead-overlay-hotfix` from `origin/main` `24289a6`. No redesign CSS, header/sidebar overhaul, usage panel, local auth-bypass preview or backend/data changes copied into release. GitHub access verified for Jeevan1811. Read-only VPS revision `f65b4b6`; login/API health 200. No production mutation yet.
 - Regression evidence: provenance grid collapsed title/address to <1px; measured-content panels previously guessed their height; nested Escape closed both confirmation and drawer. New browser gate caught responsive layout remount discarding an open map popup, then transient margin overflow at 390px. One stable page subtree and CSS media margins resolve these. Portal overlays address a separate render finding where mobile nav/chat covered drawer actions.

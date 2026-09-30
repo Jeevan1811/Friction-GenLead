@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useCallback, type CSSProperties } from "r
 import Link from "next/link";
 import { Search, ChevronDown, ChevronUp, ArrowUpDown, Loader2, Users } from "lucide-react";
 import type { Company, Contact, Location } from "@/lib/types";
+import { companyDisplayName, hasCompanyName, isSearchDocument } from "@/lib/company-display";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { DetailDrawer } from "@/components/shared/detail-drawer";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -229,8 +230,8 @@ export default function CompaniesPage() {
       const q = searchQuery.toLowerCase();
       result = result.filter(
         (c) =>
-          c.companyName.toLowerCase().includes(q) ||
-          c.normalizedName.includes(q) ||
+          companyDisplayName(c).toLowerCase().includes(q) ||
+          String(c.normalizedName ?? '').toLowerCase().includes(q) ||
           (c.tradingName && c.tradingName.toLowerCase().includes(q)) ||
           (c.businessEmail && c.businessEmail.toLowerCase().includes(q)) ||
           (c.businessPhone && c.businessPhone.toLowerCase().includes(q)) ||
@@ -241,7 +242,10 @@ export default function CompaniesPage() {
     }
     result.sort((a, b) => {
       let cmp = 0;
-      if (sortKey === "companyName") cmp = a.companyName.localeCompare(b.companyName);
+      if (sortKey === "companyName") {
+        if (hasCompanyName(a) !== hasCompanyName(b)) return hasCompanyName(a) ? -1 : 1;
+        cmp = companyDisplayName(a).localeCompare(companyDisplayName(b));
+      }
       else if (sortKey === "status") cmp = a.status.localeCompare(b.status);
       else if (sortKey === "postcode") {
         const aLoc = getLocationForCompany(a.companyId);
@@ -550,12 +554,13 @@ export default function CompaniesPage() {
                     }
                   >
                     <td style={{ padding: "12px 16px" }}>
-                      <div style={{ fontWeight: 500, color: "var(--color-text)" }}>
-                        {company.tradingName || company.companyName}
-                      </div>
+                      <button type="button" style={{ border: 0, padding: 0, background: 'transparent', textAlign: 'left', font: 'inherit', fontWeight: 500, color: 'var(--color-text)', cursor: 'pointer', minHeight: 44, overflowWrap: 'anywhere' }} aria-label={`Open ${companyDisplayName(company)} details`} onClick={event => { event.stopPropagation(); setSelectedCompanyId(company.companyId); }}>
+                        {companyDisplayName(company)}
+                      </button>
                       <div style={{ fontSize: "11px", color: "var(--color-text-muted)", marginTop: "1px" }}>
-                        {company.abn ? `ABN ${company.abn}` : "No ABN on file"}
+                        {!hasCompanyName(company) ? 'Name not recorded' : company.abn ? `ABN ${company.abn}` : "No ABN on file"}
                       </div>
+                      {isSearchDocument(company) && <InfoPopover label="Document result" text="This older search result is a source document, not a verified company. It is preserved for review; check the source before approving it as a prospect." />}
                     </td>
                     <td style={{ padding: "12px 16px" }}>
                       {loc ? (
@@ -614,7 +619,7 @@ export default function CompaniesPage() {
       <DetailDrawer
         open={!!selectedCompany}
         onClose={() => setSelectedCompanyId(null)}
-        title={selectedCompany?.tradingName || selectedCompany?.companyName || ""}
+        title={companyDisplayName(selectedCompany)}
       >
         {selectedCompany && (
           <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>

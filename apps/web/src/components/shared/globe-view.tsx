@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MapPin } from "lucide-react";
 import type { Map as LeafletMap, LayerGroup as LeafletLayerGroup, Layer, Marker } from "leaflet";
 import type { Company, Location } from "@/lib/types";
+import { companyDisplayName, groupCompanyLocations } from "@/lib/company-display";
+import { MapLocationBrowser } from "./map-location-browser";
 
 interface GlobeViewProps {
   locations: Location[];
@@ -68,16 +70,42 @@ function markerTitle(rows: Location[], origins: ReadonlyMap<string, MarkerOrigin
 const DEFAULT_CENTER: [number, number] = [15, 0];
 const DEFAULT_ZOOM = 2;
 
-function PopupContent({ rows, origins }: { rows: Location[]; origins: ReadonlyMap<string, MarkerOrigin> }): HTMLElement {
+function PopupContent({ rows, origins, companies, onBrowse }: { rows: Location[]; origins: ReadonlyMap<string, MarkerOrigin>; companies: ReadonlyMap<string, Company>; onBrowse: (rows: Location[]) => void }): HTMLElement {
   const root = document.createElement("div");
   root.className = "genlead-map-popup";
 
-  for (const row of rows.slice(0, 8)) {
+  if (rows.length > 1) {
+    const groups = groupCompanyLocations(rows);
+    const heading = document.createElement("strong");
+    heading.className = "genlead-map-popup-title";
+    heading.textContent = `${groups.length} ${groups.length === 1 ? 'company' : 'companies'}`;
+    root.appendChild(heading);
+    const summary = document.createElement("p");
+    summary.textContent = `${rows.length} locations in this map group`;
+    root.appendChild(summary);
+    const names = document.createElement("ul");
+    names.className = "genlead-map-cluster-preview";
+    for (const group of groups.slice(0, 3)) {
+      const name = document.createElement("li");
+      name.textContent = companyDisplayName(companies.get(group.companyId));
+      names.appendChild(name);
+    }
+    root.appendChild(names);
+    const browse = document.createElement("button");
+    browse.type = "button";
+    browse.className = "genlead-map-popup-link";
+    browse.textContent = "View all companies";
+    browse.addEventListener("click", event => { event.stopPropagation(); onBrowse(rows); });
+    root.appendChild(browse);
+    return root;
+  }
+
+  for (const row of rows) {
     const item = document.createElement("div");
     item.className = "genlead-map-popup-item";
     const name = document.createElement("strong");
     name.className = "genlead-map-popup-title";
-    name.textContent = row.siteName || "Saved business location";
+    name.textContent = companyDisplayName(companies.get(row.companyId));
     item.appendChild(name);
 
     const origin = document.createElement("span");
@@ -110,11 +138,6 @@ function PopupContent({ rows, origins }: { rows: Location[]; origins: ReadonlyMa
     root.appendChild(item);
   }
 
-  if (rows.length > 8) {
-    const more = document.createElement("small");
-    more.textContent = `and ${rows.length - 8} more locations at this point`;
-    root.appendChild(more);
-  }
   return root;
 }
 
@@ -153,6 +176,7 @@ export function GlobeView({ locations, companiesById, focusKey, focusResults }: 
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [tilesLoaded, setTilesLoaded] = useState(false);
   const [tilesDelayed, setTilesDelayed] = useState(false);
+  const [selectedCluster, setSelectedCluster] = useState<string[] | null>(null);
 
   const mappableLocations = useMemo(
     () => locations.filter((row) => Number.isFinite(row.lat) && Number.isFinite(row.lng)),
@@ -167,6 +191,10 @@ export function GlobeView({ locations, companiesById, focusKey, focusResults }: 
     () => countOrigins(mappableLocations, originByCompanyId),
     [mappableLocations, originByCompanyId],
   );
+  const selectedClusterRows = useMemo(() => {
+    const selected = new Set(selectedCluster ?? []);
+    return locations.filter(row => selected.has(row.locationId));
+  }, [locations, selectedCluster]);
 
   useEffect(() => {
     let cancelled = false;
@@ -271,7 +299,7 @@ export function GlobeView({ locations, companiesById, focusKey, focusResults }: 
             iconAnchor: [15, 15],
           }),
         });
-        marker.bindPopup(PopupContent({ rows, origins: originByCompanyId }), {
+        marker.bindPopup(PopupContent({ rows, origins: originByCompanyId, companies: companiesById, onBrowse: rows => setSelectedCluster(rows.map(row => row.locationId)) }), {
           ...popupDimensions(map),
           className: "genlead-map-popover",
           autoPanPadding: [12, 12],
@@ -297,7 +325,7 @@ export function GlobeView({ locations, companiesById, focusKey, focusResults }: 
     map.on("zoomend", renderMarkers);
     map.on("resize", resizePopups);
     return () => { map.off("zoomend", renderMarkers); map.off("resize", resizePopups); };
-  }, [mappableLocations, originByCompanyId, status]);
+  }, [mappableLocations, originByCompanyId, companiesById, status]);
 
   // Keep the familiar world overview until a filter is applied. Filtering
   // reveals matching points; Sheet refreshes never override a user's camera.
@@ -320,6 +348,7 @@ export function GlobeView({ locations, companiesById, focusKey, focusResults }: 
 
   return (
     <>
+      {selectedCluster && <MapLocationBrowser key={selectedCluster[0]} locations={selectedClusterRows} companiesById={companiesById} origins={originByCompanyId} onClose={() => setSelectedCluster(null)} />}
       <div className="surface-card genlead-map-card" aria-label="Saved business locations map">
         <div ref={containerRef} className="genlead-map-canvas" />
         {status === "ready" && mappableLocations.length > 0 && (

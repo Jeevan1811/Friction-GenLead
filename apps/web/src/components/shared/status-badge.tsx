@@ -71,13 +71,14 @@ export function StatusBadge({
   showDot = false,
   className,
 }: StatusBadgeProps) {
-  const style = variantStyles[status] ?? {
+  const value = String(status ?? '').trim().toUpperCase();
+  const style = variantStyles[value] ?? {
     bg: "#F9FAFB",
     text: "#6B7280",
     dot: "#6B7280",
   };
 
-  const label = status.replace(/_/g, " ");
+  const label = value ? value.replace(/_/g, " ") : 'Not recorded';
 
   return (
     <span
@@ -97,7 +98,7 @@ export function StatusBadge({
         whiteSpace: "nowrap",
       }}
     >
-      {showDot && style.dot && (
+      {showDot && value && style.dot && (
         <span
           style={{
             width: 6,

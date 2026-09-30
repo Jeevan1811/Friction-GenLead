@@ -118,19 +118,69 @@ test("an open popup adapts to map resizing and its company link opens the right 
   await expect(page.getByRole("dialog", { name: longName, exact: true })).toBeVisible();
 });
 
-test("cluster popups keep all displayed sites accessible without spilling outside a short map", async ({ page }) => {
+test("cluster popups open a bounded browser which preserves every repeated site", async ({ page }) => {
   await prepare(page, 10);
   await page.setViewportSize({ width: 375, height: 600 });
   await page.goto("/locations");
   await page.getByRole("button", { name: "10 from MSV’s workbook", exact: true }).click();
   const content = page.locator(".leaflet-popup-content");
-  await expect(content.getByText("and 2 more locations at this point", { exact: true })).toHaveCount(1);
-  expect(await content.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
-  const box = (await content.boundingBox())!;
-  expect(box.height).toBeLessThan(300);
-  await content.getByText("Example plant 8", { exact: true }).scrollIntoViewIfNeeded();
-  await expect(content.getByText("Example plant 8", { exact: true })).toBeVisible();
+  await expect(content).toContainText('1 company');
+  await expect(content).toContainText('10 locations');
+  await expect(content).not.toContainText('Saved business location');
+  await content.getByRole('button', { name: 'View all companies', exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: 'Companies in this map group', exact: true });
+  await expect(drawer).toContainText('1 company / 10 locations');
+  await drawer.getByText('9 more sites', { exact: true }).click();
+  await expect(drawer.getByText('Example plant 10', { exact: true })).toBeVisible();
+  await drawer.getByRole('button', {name:'Close',exact:true}).click();
   await page.getByRole("button", { name: "Close popup", exact: true }).click();
+});
+
+test('a 28-company point opens every company with source filters, search and pagination on phones', async ({ page }, testInfo) => {
+  await prepare(page);
+  const companies = Array.from({length: 28}, (_, i) => ({companyId:`company-${i+1}`, companyName:`Engineering Company ${String(i+1).padStart(2,'0')}`, source:i%2 ? 'OVERTURE_MAPS':'LEGACY_EXCEL', status:'NEW', industryFit:'TARGET', normalizedName:`engineering company ${i+1}`}));
+  const locations = companies.map(company => ({locationId:`site-${company.companyId}`,companyId:company.companyId,siteName:'ABR main business location (postcode only)',postcode:'4076',state:'QLD',suburb:'Wacol',lat:-27.59,lng:152.93,coordinateSource:'POSTCODE_CENTROID'}));
+  await page.route('**/internal/data/companies', route => route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(companies)}));
+  await page.route('**/internal/data/locations', route => route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(locations)}));
+  await page.setViewportSize({width:320,height:600});
+  await page.goto('/locations');
+  await page.getByRole('button',{name:'14 from MSV’s workbook · 14 public-source',exact:true}).click();
+  const popup = page.locator('.leaflet-popup-content');
+  await expect(popup).toContainText('28 companies');
+  expect((await popup.boundingBox())!.height).toBeLessThan(300);
+  await popup.getByRole('button',{name:'View all companies',exact:true}).click();
+  const panel = page.getByRole('dialog',{name:'Companies in this map group',exact:true});
+  await expect(panel.locator('article')).toHaveCount(20);
+  await panel.getByRole('button',{name:'Next',exact:true}).click();
+  await expect(panel.locator('article')).toHaveCount(8);
+  await expect(panel.getByRole('heading',{name:'Engineering Company 28',exact:true})).toBeVisible();
+  await expect(panel.getByRole('link',{name:'View company',exact:true}).last()).toHaveAttribute('href','/companies?companyId=company-28');
+  await panel.getByRole('combobox',{name:'Map group source',exact:true}).selectOption('prospect');
+  await expect(panel.locator('article')).toHaveCount(14);
+  await panel.getByRole('searchbox',{name:'Search companies in map group',exact:true}).fill('28');
+  await expect(panel.locator('article')).toHaveCount(1);
+  await expect(panel.getByText('Approximate postcode centre',{exact:true})).toBeVisible();
+  const panelBox = (await panel.boundingBox())!;
+  expect(panelBox.y).toBe(0);
+  expect(panelBox.height).toBe(600);
+  expect(await panel.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+  await page.screenshot({path:testInfo.outputPath('cluster-company-browser-phone.png'),fullPage:false,animations:'disabled'});
+  await panel.getByRole('link',{name:'View company',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'Engineering Company 28',exact:true})).toBeVisible();
+});
+
+test('blank or whitespace names never render invisible table titles or status dots', async ({ page }) => {
+  await prepare(page);
+  await page.route('**/internal/data/companies', route => route.fulfill({status:200,contentType:'application/json',body:JSON.stringify([
+    {companyId:'blank',companyName:'',tradingName:'   ',abn:'21527591972',normalizedName:'',status:'',source:'ABR'},
+    {companyId:'named',companyName:' Real Engineering ',tradingName:'   ',abn:'',normalizedName:'real engineering',status:'NEW',source:'LEGACY_EXCEL'},
+  ])}));
+  await page.goto('/companies');
+  await expect(page.locator('tbody tr').first()).toContainText('Real Engineering');
+  await expect(page.getByRole('button',{name:'Open ABN 21527591972 details',exact:true})).toBeVisible();
+  await expect(page.getByText('Not recorded',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Open ABN 21527591972 details',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'ABN 21527591972',exact:true})).toBeVisible();
 });
 
 test("a tile outage remains visible while a location popup is open", async ({ page }) => {

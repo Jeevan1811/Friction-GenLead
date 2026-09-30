@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MapPin } from "lucide-react";
-import type { Map as LeafletMap, LayerGroup as LeafletLayerGroup } from "leaflet";
+import type { Map as LeafletMap, LayerGroup as LeafletLayerGroup, Layer, Marker } from "leaflet";
 import type { Company, Location } from "@/lib/types";
 
 interface GlobeViewProps {
@@ -76,6 +76,7 @@ function PopupContent({ rows, origins }: { rows: Location[]; origins: ReadonlyMa
     const item = document.createElement("div");
     item.className = "genlead-map-popup-item";
     const name = document.createElement("strong");
+    name.className = "genlead-map-popup-title";
     name.textContent = row.siteName || "Saved business location";
     item.appendChild(name);
 
@@ -90,6 +91,7 @@ function PopupContent({ rows, origins }: { rows: Location[]; origins: ReadonlyMa
       .join(", ");
     if (detail) {
       const address = document.createElement("div");
+      address.className = "genlead-map-popup-address";
       address.textContent = detail;
       item.appendChild(address);
     }
@@ -97,6 +99,13 @@ function PopupContent({ rows, origins }: { rows: Location[]; origins: ReadonlyMa
       const accuracy = document.createElement("small");
       accuracy.textContent = "Approximate postcode centre";
       item.appendChild(accuracy);
+    }
+    if (row.companyId) {
+      const link = document.createElement("a");
+      link.className = "genlead-map-popup-link";
+      link.href = `/companies?companyId=${encodeURIComponent(row.companyId)}`;
+      link.textContent = "View company";
+      item.appendChild(link);
     }
     root.appendChild(item);
   }
@@ -107,6 +116,14 @@ function PopupContent({ rows, origins }: { rows: Location[]; origins: ReadonlyMa
     root.appendChild(more);
   }
   return root;
+}
+
+function popupDimensions(map: LeafletMap) {
+  const size = map.getSize();
+  // Reserve the content margins, close target and auto-pan gutter. Leaflet's
+  // intrinsic sizing otherwise allows a long badge to collapse the title.
+  const width = Math.max(120, Math.min(288, size.x - 96));
+  return { minWidth: width, maxWidth: width, maxHeight: Math.max(120, Math.min(300, size.y - 100)) };
 }
 
 function zoomToLocations(map: LeafletMap, leaflet: LeafletModule, locations: Location[]) {
@@ -219,8 +236,17 @@ export function GlobeView({ locations, companiesById, focusKey, focusResults }: 
     const layer = markersRef.current;
     if (status !== "ready" || !map || !leaflet || !layer) return;
 
+    const locationIdsByMarker = new Map<Layer, string>();
     const renderMarkers = () => {
+      // Zooming rebuilds screen-space clusters. Keep the selected record open
+      // rather than discarding its card when a resize finishes a pending zoom.
+      let selectedLocationId: string | undefined;
+      layer.eachLayer((marker) => {
+        if (marker.isPopupOpen()) selectedLocationId = locationIdsByMarker.get(marker);
+      });
       layer.clearLayers();
+      locationIdsByMarker.clear();
+      let selectedMarker: Marker | undefined;
       const groups = new Map<string, Location[]>();
       for (const row of mappableLocations) {
         // Screen-space buckets keep nearby red/teal points visible as one
@@ -245,15 +271,32 @@ export function GlobeView({ locations, companiesById, focusKey, focusResults }: 
             iconAnchor: [15, 15],
           }),
         });
-        marker.bindPopup(PopupContent({ rows, origins: originByCompanyId }));
+        marker.bindPopup(PopupContent({ rows, origins: originByCompanyId }), {
+          ...popupDimensions(map),
+          className: "genlead-map-popover",
+          autoPanPadding: [12, 12],
+          keepInView: true,
+        });
         if (rows.length > 1) marker.bindTooltip(markerTitle(rows, originByCompanyId), { direction: "top", className: "genlead-map-count" });
         marker.addTo(layer);
+        locationIdsByMarker.set(marker, first.locationId);
+        if (selectedLocationId && rows.some((row) => row.locationId === selectedLocationId)) selectedMarker = marker;
       }
+      selectedMarker?.openPopup();
     };
 
     renderMarkers();
+    const resizePopups = () => {
+      layer.eachLayer((marker) => {
+        const popup = marker.getPopup();
+        if (!popup) return;
+        Object.assign(popup.options, popupDimensions(map));
+        if (popup.isOpen()) popup.update();
+      });
+    };
     map.on("zoomend", renderMarkers);
-    return () => { map.off("zoomend", renderMarkers); };
+    map.on("resize", resizePopups);
+    return () => { map.off("zoomend", renderMarkers); map.off("resize", resizePopups); };
   }, [mappableLocations, originByCompanyId, status]);
 
   // Keep the familiar world overview until a filter is applied. Filtering
@@ -314,12 +357,15 @@ export function GlobeView({ locations, companiesById, focusKey, focusResults }: 
                 : `${mappableLocations.length.toLocaleString()} / ${locations.length.toLocaleString()} mapped${locations.length > mappableLocations.length ? ` · ${(locations.length - mappableLocations.length).toLocaleString()} without coordinates` : ""}`}
           </div>
         )}
-        {status === "ready" && !tilesLoaded && (
+        {status === "ready" && !tilesLoaded && !tilesDelayed && (
           <div className="genlead-map-tile-status" role="status" aria-live="polite">
-            {tilesDelayed ? "Map tiles unavailable · points still shown" : "Loading map tiles…"}
+            Loading map tiles…
           </div>
         )}
       </div>
+      {status === "ready" && !tilesLoaded && tilesDelayed && (
+        <p className="genlead-map-tile-notice" role="status" aria-live="polite">Map tiles unavailable · points still shown</p>
+      )}
       <div className="genlead-map-legend" role="list" aria-label="Map marker legend">
         {(["saved", "prospect", "unknown"] as MarkerOrigin[])
           .filter((origin) => originCounts[origin] > 0)

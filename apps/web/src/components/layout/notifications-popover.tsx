@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Bell, CalendarClock, CircleAlert } from "lucide-react";
 import { getFollowUps } from "@/lib/api";
 import type { CompanyActivity } from "@/lib/types";
+import { useAnchoredPanel } from "@/components/ui/use-anchored-panel";
 
 const REMINDER_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -22,7 +23,9 @@ function formatDue(value: string) {
 export function NotificationsPopover() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
   const [open, setOpen] = useState(false);
+  const placement = useAnchoredPanel(open, triggerRef, panelRef, 340);
   const [reloadKey, setReloadKey] = useState(0);
   const [items, setItems] = useState<CompanyActivity[]>([]);
   const [loading, setLoading] = useState(false);
@@ -93,10 +96,10 @@ export function NotificationsPopover() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          width: 36,
-          height: 36,
-          minHeight: 36,
-          minWidth: 36,
+          width: 44,
+          height: 44,
+          minHeight: 44,
+          minWidth: 44,
           borderRadius: "var(--radius-sm)",
           border: "none",
           background: open ? "var(--color-accent-light)" : "transparent",
@@ -131,19 +134,16 @@ export function NotificationsPopover() {
 
       {open && (
         <section
+          ref={panelRef}
           id="genlead-notifications-panel"
           role="dialog"
           aria-labelledby="genlead-notifications-title"
           className="surface-card"
           style={{
-            position: "absolute",
+            ...placement,
             zIndex: 80,
-            top: "calc(100% + 10px)",
-            right: 0,
-            width: 340,
-            maxWidth: "calc(100vw - 24px)",
-            maxHeight: "min(440px, calc(100dvh - var(--header-height) - 24px))",
             overflow: "auto",
+            overflowWrap: "anywhere",
             padding: 16,
           }}
         >

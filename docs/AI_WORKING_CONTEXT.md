@@ -1,6 +1,16 @@
 # Friction GenLead AI Working Context
 
-Last updated: 2026-09-30 (Asia/Singapore)
+Last updated: 2026-10-01 (Asia/Singapore)
+
+## Current task - fixes-only overlay release
+
+- Truth: **LOCAL FIXES; FINAL STAGED-BUILD QA IN PROGRESS; NOT DEPLOYED**. Private MSV dashboard. Scoped worktree `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-overlay-hotfix`, branch `codex/genlead-overlay-hotfix`, base `24289a673e0eff77b5efc6c1c3e299d24b57b34a`. Production read-only check found `f65b4b6fb6bd3cf018ea941fb7c263c685bf8a2f`, login/API health 200.
+- Owner requested finishing the earlier popup/dashboard defects before the new clustered-location panel, missing-name/data-quality work, light-theme redesign and time-savings charts. **Deploy fixes only; retain original live design.** Redesign and Jev outcomes UI remain uncommitted/local in `work\genlead-area-results-map` on `codex/genlead-dashboard-reference-redesign`; do not stage that worktree wholesale. No background monitor should be restored.
+- Popup grid allowed the provenance badge to collapse the title/address to <1px. Names, badges and addresses now use independent rows with bounded sizing, scroll, 44px close and exact-company links. Hidden map chrome no longer covers the close target; tile failures remain visible outside the canvas. Screen-space cluster redraw preserves selection.
+- Fixed mobile/desktop layout remount clearing the selected card; keep one page subtree and CSS-responsive margins. Anchored account/help/reminder panels use measured viewport placement, including keyboard/focus behavior. Drawers and nested confirmations portal outside page stacking contexts; modal controls cannot sit behind mobile nav/chat.
+- Final QA: 30 unit checks and TypeScript passed. Optimized staged build passed, promoted locally to the normal `.next` directory, and all 21 Playwright cases passed using normal runtime config. This includes an actual hit-test proving drawer actions are not covered by navigation/chat. Desktop/phone screenshots inspected. Synthetic fixtures only; no new production search, Google Sheet read/write, auth/SMTP or credential changes. No independent review claimed. Release is authorized but not yet deployed.
+- Release builds can use `GENLEAD_STAGED_BUILD=1` for `.next-staged`; serving `.next` remains intact during compilation. The flag must not enter PM2's persisted environment. Swap only validated, completed build directories; keep the prior revision/build for rollback. Next regenerates `next-env.d.ts` to the staging path; return this generated reference to `.next/types/routes.d.ts` after promotion. The tsconfig includes both generated type roots.
+- Next owner: Codex finish staged swap/runtime browser gate, inspect exact fixes-only diff, commit/push/attach scoped PR, then deploy only `frictiongenlead-web` under existing owner approval. Preserve production's untracked SMTP backup/ecosystem config/venv and leave API/other VPS apps untouched. Then continue later prompts locally.
 
 ## Current release — concise UI and map-led workspace
 

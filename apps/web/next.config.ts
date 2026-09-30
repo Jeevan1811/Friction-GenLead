@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 import path from "node:path";
 
 const nextConfig: NextConfig = {
+  // Build beside the serving bundle during a scoped production release.
+  // Swap the completed directory to .next; never persist this flag in PM2.
+  distDir: process.env.GENLEAD_STAGED_BUILD === "1" ? ".next-staged" : ".next",
   transpilePackages: ["@pi/contracts"],
   // Without this, Next infers the workspace root from the nearest lockfile
   // it finds walking up from here -- on this machine that resolves to a

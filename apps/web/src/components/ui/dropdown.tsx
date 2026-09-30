@@ -5,11 +5,13 @@ import {
   useRef,
   useEffect,
   useCallback,
+  useId,
   type ReactNode,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import clsx from "clsx";
 import type { LucideIcon } from "lucide-react";
+import { useAnchoredPanel } from "./use-anchored-panel";
 
 /* ---------- Types ---------- */
 export type DropdownItem =
@@ -27,8 +29,10 @@ export function Dropdown({ trigger, items, className }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const [focusIdx, setFocusIdx] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const [above, setAbove] = useState(false);
+  const id = useId();
+  const placement = useAnchoredPanel(open, triggerRef, menuRef, 280);
 
   /* Click-outside to close */
   useEffect(() => {
@@ -40,14 +44,6 @@ export function Dropdown({ trigger, items, className }: DropdownProps) {
     };
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
-  }, [open]);
-
-  /* Position check — flip if near bottom */
-  useEffect(() => {
-    if (!open || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    setAbove(spaceBelow < 220);
   }, [open]);
 
   /* Reset focus when closing */
@@ -63,10 +59,10 @@ export function Dropdown({ trigger, items, className }: DropdownProps) {
   const handleKeyDown = useCallback(
     (e: ReactKeyboardEvent) => {
       if (!open) {
-        if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+        if (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           setOpen(true);
-          setFocusIdx(actionableIndices[0] ?? -1);
+          setFocusIdx((e.key === "ArrowUp" ? actionableIndices.at(-1) : actionableIndices[0]) ?? -1);
         }
         return;
       }
@@ -74,6 +70,14 @@ export function Dropdown({ trigger, items, className }: DropdownProps) {
       if (e.key === "Escape") {
         e.preventDefault();
         setOpen(false);
+        triggerRef.current?.focus();
+        return;
+      }
+
+      if (e.key === "Tab") { setOpen(false); return; }
+      if (e.key === "Home" || e.key === "End") {
+        e.preventDefault();
+        setFocusIdx((e.key === "Home" ? actionableIndices[0] : actionableIndices.at(-1)) ?? -1);
         return;
       }
 
@@ -99,6 +103,7 @@ export function Dropdown({ trigger, items, className }: DropdownProps) {
         if (item && (!("kind" in item) || item.kind === "item")) {
           item.onClick();
           setOpen(false);
+          triggerRef.current?.focus();
         }
       }
     },
@@ -121,15 +126,17 @@ export function Dropdown({ trigger, items, className }: DropdownProps) {
       onKeyDown={handleKeyDown}
     >
       {/* Trigger */}
-      <div
-        onClick={() => setOpen((o) => !o)}
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => { setOpen(o => !o); setFocusIdx(actionableIndices[0] ?? -1); }}
         className="dropdown-trigger"
         aria-label="Open user menu"
         style={{
-          width: 40,
-          height: 40,
-          minWidth: 40,
-          minHeight: 40,
+          width: 44,
+          height: 44,
+          minWidth: 44,
+          minHeight: 44,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -141,24 +148,23 @@ export function Dropdown({ trigger, items, className }: DropdownProps) {
           lineHeight: 0,
           cursor: "pointer",
         }}
-        role="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        tabIndex={0}
+        aria-controls={id}
       >
         {trigger}
-      </div>
+      </button>
 
       {/* Menu */}
       {open && (
         <div
           ref={menuRef}
+          id={id}
           role="menu"
           style={{
-            position: "absolute",
-            [above ? "bottom" : "top"]: "calc(100% + 4px)",
-            right: 0,
-            minWidth: "180px",
+            ...placement,
+            overflowY: "auto",
+            overflowWrap: "anywhere",
             background: "var(--color-surface)",
             border: "1px solid var(--color-border)",
             borderRadius: "var(--radius-md)",
@@ -195,6 +201,7 @@ export function Dropdown({ trigger, items, className }: DropdownProps) {
                 onClick={() => {
                   actionItem.onClick();
                   setOpen(false);
+                  triggerRef.current?.focus();
                 }}
                 style={{
                   display: "flex",
@@ -211,13 +218,13 @@ export function Dropdown({ trigger, items, className }: DropdownProps) {
                   cursor: "pointer",
                   textAlign: "left",
                   transition: "background var(--transition-fast)",
-                  minHeight: "36px",
+                  minHeight: "44px",
                   minWidth: "auto",
                   fontFamily: "var(--font-sans)",
                 }}
               >
-                {IconComp && <IconComp size={14} strokeWidth={1.5} />}
-                {actionItem.label}
+                {IconComp && <IconComp size={16} strokeWidth={1.5} style={{ flexShrink: 0 }} />}
+                <span style={{ minWidth: 0 }}>{actionItem.label}</span>
               </button>
             );
           })}

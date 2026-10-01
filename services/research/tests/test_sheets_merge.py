@@ -167,8 +167,10 @@ def test_live_tab_read_failure_is_not_indistinguishable_from_an_empty_tab():
 
     adapter = _adapter_with(BrokenSheets())
 
-    assert asyncio.run(adapter.read_companies()) == []
-    assert "temporary Sheets API outage" in (adapter.tab_read_error("companies") or "")
+    import pytest
+    with pytest.raises(RuntimeError, match="Google Sheets"):
+        asyncio.run(adapter.read_companies())
+    assert adapter.tab_read_error("companies") == "RuntimeError"
 
 
 def test_user_owned_fields_keep_existing_value():

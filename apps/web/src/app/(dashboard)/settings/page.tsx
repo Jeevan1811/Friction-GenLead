@@ -62,8 +62,10 @@ export default function SettingsPage() {
     };
   }, [loadProviderStatus]);
 
-  const isLive = sync?.mode === "live" && sync.connected;
-  const connectionTitle = syncError
+  const isLive = sync?.mode === "live" && sync.connected && sync.state === "SYNCED";
+  const syncUnavailable = syncError || sync?.state === "ERROR";
+  const countLabel = (count: number | undefined) => count == null || count < 0 ? "—" : count.toLocaleString();
+  const connectionTitle = syncUnavailable
     ? "Could not check the connection"
     : !sync
       ? "Checking the connection…"
@@ -196,11 +198,11 @@ export default function SettingsPage() {
                       : service.state === "not_configured"
                         ? "Not configured"
                         : "Not checked";
-                  const credentialLabel = service.credential_status === "configured"
+                  const credentialLabel = service.credential_note || (service.credential_status === "configured"
                     ? "Credential configured · value hidden"
                     : service.credential_status === "not_required"
                       ? "No provider credential required"
-                      : "Credential not configured";
+                      : "Credential not configured");
                   const checkedLabel = service.checked_at
                     ? `Last used ${new Date(service.checked_at).toLocaleString()}`
                     : "No request recorded this API session";
@@ -277,7 +279,7 @@ export default function SettingsPage() {
               <InfoPopover label="Google Sheets data" text="Sheet changes refresh automatically when the dashboard is open or revisited. Search imported workbook fields under Original data." />
             </div>
             <div role="status" aria-live="polite" style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "10px" }}>
-              {syncError ? (
+              {syncUnavailable ? (
                 <CircleAlert size={16} style={{ color: "var(--color-error)" }} />
               ) : !sync ? (
                 <LoaderCircle size={16} className="spin" style={{ color: "var(--color-text-muted)" }} />
@@ -290,12 +292,12 @@ export default function SettingsPage() {
             </div>
             {sync && (
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px", marginTop: "14px", color: "var(--color-text-secondary)" }}>
-                <span><strong style={{ color: "var(--color-text)" }}>{sync.companiesCount.toLocaleString()}</strong> companies</span>
-                <span><strong style={{ color: "var(--color-text)" }}>{sync.locationsCount.toLocaleString()}</strong> locations</span>
-                <span><strong style={{ color: "var(--color-text)" }}>{sync.contactsCount.toLocaleString()}</strong> contacts</span>
-                <span><strong style={{ color: "var(--color-text)" }}>{(sync.activitiesCount ?? 0).toLocaleString()}</strong> call notes</span>
-                <span><strong style={{ color: "var(--color-text)" }}>{(sync.searchRunsCount ?? 0).toLocaleString()}</strong> search summaries</span>
-                <span><strong style={{ color: "var(--color-text)" }}>{(sync.sourceRecordsCount ?? 0).toLocaleString()}</strong> original source rows</span>
+                <span><strong style={{ color: "var(--color-text)" }}>{countLabel(sync.companiesCount)}</strong> companies</span>
+                <span><strong style={{ color: "var(--color-text)" }}>{countLabel(sync.locationsCount)}</strong> locations</span>
+                <span><strong style={{ color: "var(--color-text)" }}>{countLabel(sync.contactsCount)}</strong> contacts</span>
+                <span><strong style={{ color: "var(--color-text)" }}>{countLabel(sync.activitiesCount)}</strong> call notes</span>
+                <span><strong style={{ color: "var(--color-text)" }}>{countLabel(sync.searchRunsCount)}</strong> search summaries</span>
+                <span><strong style={{ color: "var(--color-text)" }}>{countLabel(sync.sourceRecordsCount)}</strong> original source rows</span>
               </div>
             )}
           </div>

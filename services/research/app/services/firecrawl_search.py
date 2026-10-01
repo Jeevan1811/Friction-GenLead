@@ -1,4 +1,4 @@
-"""Bounded, keyless web search for unverified company-site candidates.
+"""Bounded, authenticated web search for unverified company-site candidates.
 
 Firecrawl expands indexed discovery beyond mapped places, but search results do
 not prove company identity, industry, website ownership, or an operating site.
@@ -11,6 +11,7 @@ import asyncio
 import ipaddress
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import Iterable
@@ -161,6 +162,8 @@ def _host_for_result(value: object) -> tuple[str, str] | None:
         return None
     if parts.username or parts.password or port not in {None, 80, 443}:
         return None
+    if re.search(r"\.(?:pdf|docx?|xlsx?|pptx?|csv|zip)(?:$|/)", parts.path, re.IGNORECASE):
+        return None
     if host == "localhost" or host.endswith((".localhost", ".local", ".internal", ".example")):
         return None
     try:
@@ -180,7 +183,7 @@ def _host_for_result(value: object) -> tuple[str, str] | None:
 
 def _candidate_name(title: object) -> str:
     text = " ".join(str(title or "").split())[:240]
-    if not text or LOW_SIGNAL_TITLE.search(text):
+    if not text or LOW_SIGNAL_TITLE.search(text) or re.search(r"\[PDF\]", text, re.IGNORECASE):
         return ""
     parts = re.split(r"\s+(?:\||–|—)\s+|\s+-\s+", text)
     for part in parts:
@@ -197,11 +200,13 @@ class FirecrawlSearchDiscovery:
         self,
         *,
         geocoder: Any,
+        api_key: str | None = None,
         client: httpx.AsyncClient | None = None,
         cache_ttl_seconds: int = SEARCH_CACHE_SECONDS,
         minimum_interval_seconds: float = MIN_REQUEST_INTERVAL_SECONDS,
     ) -> None:
         self.geocoder = geocoder
+        self.api_key = (os.environ.get("FIRECRAWL_API_KEY", "") if api_key is None else api_key).strip()
         self.client = client
         self.cache_ttl_seconds = max(0, int(cache_ttl_seconds))
         self.minimum_interval_seconds = max(0.0, float(minimum_interval_seconds))
@@ -213,6 +218,11 @@ class FirecrawlSearchDiscovery:
     async def search(self, location: str, industry: str | None = None) -> list[dict[str, Any]]:
         place = _input_text(location, label="location", maximum=160)
         sector = _input_text(industry, label="industry", maximum=80) if industry else ""
+        if not self.api_key:
+            raise PublicSourceError(
+                "Website discovery is not configured. Mapped-place and saved-workbook results remain available; "
+                "the owner must configure Firecrawl access to enable this additional source."
+            )
         cache_key = f"{place.casefold()}|{sector.casefold()}"
         cached = self._search_cache.get(cache_key)
         if cached and cached[0] > time.monotonic():
@@ -314,7 +324,8 @@ class FirecrawlSearchDiscovery:
             "safe": True,
         }
         try:
-            async with client.stream("POST", SEARCH_URL, json=payload) as response:
+            async with client.stream("POST", SEARCH_URL, json=payload,
+                                     headers={"Authorization": f"Bearer {self.api_key}"}) as response:
                 if response.status_code < 200 or response.status_code >= 300:
                     raise PublicSourceError(
                         provider_http_error_message("jev", response.status_code)

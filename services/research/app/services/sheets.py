@@ -43,8 +43,13 @@ from uuid import UUID
 from ..models.enums import SyncState
 from ..models.schemas import Company, Contact, Location
 from .sheets_config import SPREADSHEET_TABS
+from .event_logging import emit_event, exception_category
 
 logger = logging.getLogger(__name__)
+
+
+class SheetsReadError(RuntimeError):
+    """A failed live read, never interchangeable with an empty tab."""
 
 # ---------------------------------------------------------------------------
 # Field ownership sets
@@ -161,6 +166,7 @@ class GoogleSheetsAdapter:
     # event-loop thread so one slow Sheets response cannot stall every route.
     _google_io_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _tab_write_locks: dict[str, asyncio.Lock] = field(default_factory=dict, repr=False)
+    _tab_read_locks: dict[str, asyncio.Lock] = field(default_factory=dict, repr=False)
 
     # In-memory stores for mock mode.
     _companies: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -719,6 +725,13 @@ class GoogleSheetsAdapter:
         return [str(value).strip() for value in values[0]] if values else []
 
     async def _read_tab(self, tab_key: str) -> list[dict[str, Any]]:
+        # Coalesce concurrent dashboard reads; queued callers recheck the
+        # short-lived cache rather than spending another Sheets quota unit.
+        lock = self._tab_read_locks.setdefault(tab_key, asyncio.Lock())
+        async with lock:
+            return await self._read_tab_unlocked(tab_key)
+
+    async def _read_tab_unlocked(self, tab_key: str) -> list[dict[str, Any]]:
         """Read all rows from a tab and return as list of dicts.
 
         Results are cached for ``TAB_CACHE_TTL_SECONDS``. The dashboard loads
@@ -767,9 +780,12 @@ class GoogleSheetsAdapter:
             return records
 
         except Exception as exc:
-            self._tab_read_errors[tab_key] = str(exc)[:500]
-            logger.exception("Failed to read tab %s", tab_name)
-            return []
+            self._tab_read_errors[tab_key] = type(exc).__name__
+            emit_event(logger, event="sheets.read_failed",
+                       category=exception_category(exc, fallback="sheets_read_error"),
+                       provider="google_sheets", exception=exc,
+                       outcome=tab_key, level=logging.WARNING)
+            raise SheetsReadError("Google Sheets is temporarily unavailable. Your saved data has not been removed. Please retry.") from exc
 
     # ------------------------------------------------------------------
     # Writes (with field-ownership enforcement)
@@ -1133,6 +1149,7 @@ class GoogleSheetsAdapter:
             "source_records_count": counts.get("source_records", 0),
             "sync_log_entries": len(self._sync_log),
             "last_sync": last_sync,
+            "read_errors": sorted(key for key, count in counts.items() if count < 0),
         }
 
     # ------------------------------------------------------------------

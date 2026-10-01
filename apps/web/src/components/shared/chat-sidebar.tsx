@@ -26,7 +26,15 @@ const SUGGESTIONS = [
 function loadMessages(): ChatMessage[] {
   try {
     const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const safe = parsed.filter((item): item is ChatMessage => Boolean(item)
+          && (item.role === "user" || item.role === "assistant")
+          && typeof item.content === "string").slice(-50);
+        if (safe.length) return safe;
+      }
+    }
   } catch {
     /* empty */
   }
@@ -44,13 +52,21 @@ function saveMessages(msgs: ChatMessage[]) {
 export function ChatSidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages());
+  const [messages, setMessages] = useState<ChatMessage[]>([{ role: "assistant", content: GREETING }]);
+  const [messagesRestored, setMessagesRestored] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [sheetUrl, setSheetUrl] = useState<string | null | undefined>(undefined);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Server and first browser render must match. Restore browser-only storage
+  // after hydration, before the persistence effect can replace it.
+  useEffect(() => {
+    setMessages(loadMessages());
+    setMessagesRestored(true);
+  }, []);
 
   /* Auto-scroll */
   useEffect(() => {
@@ -80,8 +96,8 @@ export function ChatSidebar() {
 
   /* Persist */
   useEffect(() => {
-    saveMessages(messages);
-  }, [messages]);
+    if (messagesRestored) saveMessages(messages);
+  }, [messages, messagesRestored]);
 
   const send = useCallback(
     async (raw: string) => {

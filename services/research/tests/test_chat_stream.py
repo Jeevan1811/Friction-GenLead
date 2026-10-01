@@ -56,6 +56,9 @@ def test_stream_provider_failure_returns_fallback_and_done_event(monkeypatch):
     assert "402" not in response.text
     assert "partial provider answer" not in response.text
     assert "data: [DONE]" in response.text
+    assert "\nThe built-in" not in response.text
+    for event in response.text.split("\n\n"):
+        assert all(line.startswith("data: ") for line in event.splitlines())
 
 
 def test_non_streaming_provider_credit_failure_explains_the_cause_without_status_code(monkeypatch):

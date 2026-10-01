@@ -11,7 +11,7 @@ test("location cards and table rows open the related company with keyboard-acces
   assert.ok(locations.includes("location-card-button"));
   assert.ok(locations.includes("router.push(`/companies?companyId=${encodeURIComponent(company.companyId)}`)"));
   assert.ok(locations.includes("<Link href={`/companies?companyId=${encodeURIComponent(company.companyId)}`}"));
-  assert.ok(locations.includes('aria-label={`Open ${company.tradingName || company.companyName} details`}'));
+  assert.ok(locations.includes('aria-label={`Open ${companyDisplayName(company)} details`}'));
 });
 
 test("location filters share truthful map counts and a clear-filters action", () => {

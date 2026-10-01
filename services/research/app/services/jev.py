@@ -992,7 +992,12 @@ class Jev:
                 raise RuntimeError("; ".join(source_errors) or issue["message"])
 
             if source_issues:
-                provider_health.record_issue("jev", source_issues[0])
+                issue = dict(source_issues[0])
+                issue["message"] = (
+                    f"Partial research: {successful_sources} source(s) responded; "
+                    f"{len(source_failures)} source(s) unavailable. " + issue["message"]
+                )
+                provider_health.record_issue("jev", issue)
             else:
                 provider_health.record_success("jev")
 

@@ -8,6 +8,7 @@ import pytest
 
 from app.services.firecrawl_search import FirecrawlSearchDiscovery
 from app.services.firecrawl_search import _build_queries
+from app.services.firecrawl_search import _candidate_name, _host_for_result
 from app.services.osm_discovery import PublicSourceError
 
 
@@ -20,6 +21,26 @@ class _Geocoder:
             "region": "Queensland",
             "locality": "Gladstone",
         }
+
+
+def test_missing_access_key_never_sends_an_unauthenticated_request():
+    async def run():
+        def unexpected_request(request):
+            pytest.fail("Missing credentials must not call the hosted provider")
+        async with httpx.AsyncClient(transport=httpx.MockTransport(unexpected_request)) as client:
+            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client, api_key="")
+            await service.search("Gladstone, Queensland", "Mining")
+    with pytest.raises(PublicSourceError, match="Website discovery is not configured"):
+        asyncio.run(run())
+
+
+@pytest.mark.parametrize("url", ["https://supplier.com/catalog.PDF", "https://supplier.com/report.xlsx?download=1", "https://supplier.com/directory.doc"])
+def test_document_downloads_are_not_company_websites(url):
+    assert _host_for_result(url) is None
+
+
+def test_pdf_search_title_is_not_a_company_name():
+    assert _candidate_name("[PDF] Argentine Companies at BIOFACH 2017") == ""
 
 
 def _hit(title: str, url: str, description: str = "") -> dict[str, str]:
@@ -35,7 +56,7 @@ def test_valve_focused_web_queries_cover_the_selected_buyer_sectors():
         assert sector in joined
 
 
-def test_search_is_localized_bounded_keyless_and_filters_low_signal_domains():
+def test_search_is_localized_bounded_authenticated_and_filters_low_signal_domains():
     requests: list[httpx.Request] = []
     batches = [
         [
@@ -54,7 +75,7 @@ def test_search_is_localized_bounded_keyless_and_filters_low_signal_domains():
         requests.append(request)
         assert request.method == "POST"
         assert str(request.url) == "https://api.firecrawl.dev/v2/search"
-        assert "authorization" not in request.headers
+        assert request.headers["authorization"] == "Bearer test-only"
         body = json.loads(request.content)
         assert body["limit"] == 5
         assert body["sources"] == ["web"]
@@ -65,7 +86,7 @@ def test_search_is_localized_bounded_keyless_and_filters_low_signal_domains():
 
     async def run() -> tuple[FirecrawlSearchDiscovery, list[dict[str, object]]]:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client)
+            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client, api_key="test-only")
             results = await service.search("Gladstone, Queensland", "Heavy Industry")
             return service, results
 
@@ -107,7 +128,7 @@ def test_partial_provider_failure_keeps_prior_candidates_without_exposing_body()
 
     async def run() -> tuple[FirecrawlSearchDiscovery, list[dict[str, object]]]:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client)
+            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client, api_key="test-only")
             results = await service.search("Gladstone, Queensland", "Mining")
             return service, results
 
@@ -130,7 +151,7 @@ def test_provider_failure_before_any_result_raises_safe_error_and_does_not_retry
 
     async def run() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client)
+            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client, api_key="test-only")
             await service.search("Gladstone, Queensland", "Mining")
 
     with pytest.raises(PublicSourceError, match="limiting requests") as error:
@@ -145,7 +166,7 @@ def test_provider_failure_before_any_result_raises_safe_error_and_does_not_retry
 def test_search_rejects_private_or_url_like_query_input(value: str):
     async def run() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: httpx.Response(200))) as client:
-            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client)
+            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client, api_key="test-only")
             await service.search(value, "Mining")
 
     with pytest.raises(ValueError):
@@ -159,7 +180,7 @@ def test_search_does_not_call_provider_without_resolved_country():
 
     async def run() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: httpx.Response(200))) as client:
-            service = FirecrawlSearchDiscovery(geocoder=UnresolvedGeocoder(), client=client)
+            service = FirecrawlSearchDiscovery(geocoder=UnresolvedGeocoder(), client=client, api_key="test-only")
             await service.search("Gladstone, Queensland", "Mining")
 
     with pytest.raises(PublicSourceError, match="country"):
@@ -179,7 +200,7 @@ def test_identical_search_is_cached_to_bound_provider_usage():
 
     async def run() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client)
+            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client, api_key="test-only")
             first = await service.search("Gladstone, Queensland", "Mining")
             second = await service.search("Gladstone, Queensland", "Mining")
             return first, second
@@ -196,7 +217,7 @@ def test_credit_limited_search_explains_the_cause_without_showing_status_code():
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(lambda _request: httpx.Response(402))
         ) as client:
-            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client)
+            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client, api_key="test-only")
             await service.search("Gladstone, Queensland", "Mining")
 
     with pytest.raises(PublicSourceError) as error:

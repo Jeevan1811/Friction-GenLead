@@ -115,7 +115,7 @@ export default function FollowUpsPage() {
   };
 
   return (
-    <main style={{ padding: "24px", maxWidth: "960px" }}>
+    <div style={{ padding: "24px", maxWidth: "960px" }}>
       <div className="genlead-page-heading">
         <h1 data-tour="follow-ups-overview" style={{ fontSize: "28px", fontWeight: 600, letterSpacing: "-0.02em" }}>Follow-ups</h1>
         <InfoPopover label="Follow-ups" text="Scheduled next steps from company call notes. Mark a task done or reopen it when plans change." />
@@ -146,6 +146,6 @@ export default function FollowUpsPage() {
         </>
       )}
       {savingId && <span role="status" style={{ position: "fixed", bottom: 16, right: 20, fontSize: "12px", color: "var(--color-text-muted)" }}>Saving follow-up…</span>}
-    </main>
+    </div>
   );
 }

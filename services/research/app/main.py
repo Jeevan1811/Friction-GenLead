@@ -18,6 +18,7 @@ load_dotenv()
 from .routers import chat, data, discovery, health, import_router, operations
 from .services.event_logging import emit_event
 from .services.sheets_instance import sheets_adapter
+from .services.sheets import SheetsReadError
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,11 @@ app.include_router(data.router)
 # FastAPI handles those separately, before they'd ever reach here, and their
 # `detail` strings are hand-written to already be safe to show a user.
 # ---------------------------------------------------------------------------
+
+@app.exception_handler(SheetsReadError)
+async def sheets_read_exception_handler(request: Request, exc: SheetsReadError) -> JSONResponse:
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:

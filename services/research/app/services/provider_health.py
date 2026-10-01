@@ -90,6 +90,12 @@ def describe_provider_exception(
         return describe_provider_failure(service_id, status_code, partial=partial)
 
     text = str(exc).casefold()
+    if "website discovery is not configured" in text:
+        return {
+            "state": "attention",
+            "message": "Website discovery is not configured; mapped-place and saved-workbook results remain available.",
+            "next_step": "The account administrator must configure Firecrawl access for additional website discovery.",
+        }
     if "parseable abn rows" in text or "recognized no-results message" in text:
         return {
             "state": "attention",

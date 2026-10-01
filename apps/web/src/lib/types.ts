@@ -138,6 +138,7 @@ export interface RejectedEntity {
  * ERROR.
  */
 export interface SyncStatus {
+  readErrors?: string[];
   connected: boolean;
   mode: "mock" | "live";
   spreadsheetId: string | null;

@@ -78,7 +78,7 @@ export function StatusBadge({
     dot: "#6B7280",
   };
 
-  const label = value ? value.replace(/_/g, " ") : 'Not recorded';
+  const label = value === "NEW" ? "UNREVIEWED" : value ? value.replace(/_/g, " ") : 'Not recorded';
 
   return (
     <span

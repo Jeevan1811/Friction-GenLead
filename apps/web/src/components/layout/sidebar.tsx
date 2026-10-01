@@ -55,10 +55,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
     const syncRefresh = getSyncStatus()
       .then((data) => {
         setSync(data);
-        setCompaniesCount(data.companiesCount);
-        setLocationsCount(data.locationsCount);
-        setContactsCount(data.contactsCount);
-        setRejectedCount(data.rejectionsCount);
+        setCompaniesCount(data.companiesCount >= 0 ? data.companiesCount : null);
+        setLocationsCount(data.locationsCount >= 0 ? data.locationsCount : null);
+        setContactsCount(data.contactsCount >= 0 ? data.contactsCount : null);
+        setRejectedCount(data.rejectionsCount >= 0 ? data.rejectionsCount : null);
       })
       .catch(() => {
         setSync({

@@ -1,4 +1,4 @@
-"""Bounded, authenticated web search for unverified company-site candidates.
+"""Bounded web search with optional authentication for company-site candidates.
 
 Firecrawl expands indexed discovery beyond mapped places, but search results do
 not prove company identity, industry, website ownership, or an operating site.
@@ -218,11 +218,6 @@ class FirecrawlSearchDiscovery:
     async def search(self, location: str, industry: str | None = None) -> list[dict[str, Any]]:
         place = _input_text(location, label="location", maximum=160)
         sector = _input_text(industry, label="industry", maximum=80) if industry else ""
-        if not self.api_key:
-            raise PublicSourceError(
-                "Website discovery is not configured. Mapped-place and saved-workbook results remain available; "
-                "the owner must configure Firecrawl access to enable this additional source."
-            )
         cache_key = f"{place.casefold()}|{sector.casefold()}"
         cached = self._search_cache.get(cache_key)
         if cached and cached[0] > time.monotonic():
@@ -325,7 +320,7 @@ class FirecrawlSearchDiscovery:
         }
         try:
             async with client.stream("POST", SEARCH_URL, json=payload,
-                                     headers={"Authorization": f"Bearer {self.api_key}"}) as response:
+                                     headers={"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}) as response:
                 if response.status_code < 200 or response.status_code >= 300:
                     raise PublicSourceError(
                         provider_http_error_message("jev", response.status_code)

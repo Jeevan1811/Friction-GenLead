@@ -29,7 +29,7 @@ import {
   filterCompaniesToResearchRun,
 } from "@/lib/research-run-results";
 
-type Tab = "all" | "new" | "review" | "approved" | "stale" | "no-contact" | "rejected";
+type Tab = "all" | "new" | "review" | "approved" | "stale" | "no-contact" | "rejected" | "documents";
 
 /** What's currently targeted by the (shared) reject-with-reason dialog. */
 type RejectTarget = {
@@ -203,8 +203,8 @@ export default function CompaniesPage() {
     locationByCompany.get(companyId);
 
   const tabs: { key: Tab; label: string; filter: (c: Company) => boolean }[] = [
-    { key: "all", label: "All", filter: () => true },
-    { key: "new", label: "New", filter: (c) => c.status === "NEW" },
+    { key: "all", label: "All", filter: (c) => !isSearchDocument(c) },
+    { key: "new", label: "Unreviewed", filter: (c) => c.status === "NEW" && !isSearchDocument(c) },
     { key: "review", label: "Needs Review", filter: (c) => c.status === "REVIEW" || c.status === "VERIFYING" },
     { key: "approved", label: "Approved", filter: (c) => c.status === "APPROVED" },
     { key: "stale", label: "Stale", filter: (c) => c.status === "STALE" },
@@ -214,6 +214,7 @@ export default function CompaniesPage() {
       filter: (c) => (contactsByCompany.get(c.companyId)?.length ?? 0) === 0,
     },
     { key: "rejected", label: "Rejected", filter: (c) => c.status === "REJECTED" },
+    { key: "documents", label: "Source documents", filter: (c) => isSearchDocument(c) },
   ];
 
   const tabDef = tabs.find((t) => t.key === activeTab)!;

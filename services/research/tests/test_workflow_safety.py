@@ -41,7 +41,8 @@ def test_provider_status_shows_model_and_credential_state_without_exposing_secre
     assert services["chatbot"]["provider"] == "OpenRouter"
     assert services["chatbot"]["model"] == "meta-llama/llama-3.3-70b-instruct"
     assert services["chatbot"]["credential_status"] == "configured"
-    assert services["jev"]["credential_status"] == "not_required"
+    assert services["jev"]["credential_status"] in {"configured", "not_configured"}
+    assert "Firecrawl" in services["jev"]["credential_note"]
     assert secret not in response.text
     assert "api_key" not in response.text
 

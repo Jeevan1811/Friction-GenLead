@@ -63,6 +63,39 @@ test.beforeEach(async ({ page }) => {
   await addLocalSession(page);
 });
 
+test("remembered chat restores after hydration without replacing stored history", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.addInitScript(() => {
+    sessionStorage.setItem("genlead-chat-messages", JSON.stringify([
+      { role: "assistant", content: "Remembered synthetic QA answer" },
+    ]));
+  });
+  await page.route("**/internal/**", route => fulfillJson(route, {}));
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Open chat", exact: true }).click();
+  await expect(page.getByText("Remembered synthetic QA answer")).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Open chat", exact: true }).click();
+  await expect(page.getByText("Remembered synthetic QA answer")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("failed Sheet reads do not show synced or negative record counts", async ({ page }) => {
+  await page.route("**/internal/**", async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === "/internal/data/sync-status") return fulfillJson(route, {
+      connected: true, mode: "live", state: "ERROR", companiesCount: -1,
+      locationsCount: -1, contactsCount: -1, readErrors: ["companies", "locations", "contacts"],
+    });
+    return fulfillJson(route, {});
+  });
+  await page.goto("/settings");
+  await expect(page.getByText("Could not check the connection")).toBeVisible();
+  await expect(page.getByText("Connected to the live Google Sheet", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("-1", { exact: true })).toHaveCount(0);
+});
+
 test("Settings keeps service warnings visible and optional guidance on demand", async ({ page }) => {
   await page.route("**/internal/**", async (route) => {
     const path = new URL(route.request().url()).pathname;

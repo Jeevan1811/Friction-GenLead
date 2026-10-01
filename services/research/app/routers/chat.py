@@ -93,7 +93,9 @@ async def chat(request: ChatRequest):
                     status,
                 )
                 fallback = _fallback_with_provider_reason(question, ctx)
-                yield f"data: {fallback}\n\n"
+                for line in fallback.splitlines() or [""]:
+                    yield f"data: {line}\n"
+                yield "\n"
                 yield "data: [DONE]\n\n"
                 return
 

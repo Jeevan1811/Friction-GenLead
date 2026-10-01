@@ -255,7 +255,7 @@ async def get_sync_status() -> dict[str, Any]:
     """
     status = await sheets_adapter.get_sync_status()
 
-    if not status.get("connected"):
+    if not status.get("connected") or status.get("read_errors"):
         state = "ERROR"
     elif status.get("mode") != "live":
         state = "NEVER"

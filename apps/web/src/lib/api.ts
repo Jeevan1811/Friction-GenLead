@@ -78,10 +78,9 @@ export async function apiGet<T>(
   // setup), and the FastAPI backend's require_auth reads the session JWT
   // from a cookie. Without this, the browser silently drops that cookie
   // on the cross-origin request and every call 401s even when logged in.
-  const controller = options.timeoutMs ? new AbortController() : undefined;
-  const timeout = options.timeoutMs
-    ? setTimeout(() => controller?.abort(), options.timeoutMs)
-    : undefined;
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const signal = controller && options.signal
     ? AbortSignal.any([controller.signal, options.signal])
     : controller?.signal ?? options.signal;
@@ -97,7 +96,9 @@ export async function apiGet<T>(
     return await res.json();
   } catch (error) {
     if (controller?.signal.aborted) {
-      throw new Error("Progress check timed out. The search may still be running; keeping the last status and retrying.");
+      throw new Error(path.startsWith("/internal/ops/research/")
+        ? "Progress check timed out. The search may still be running; keeping the last status and retrying."
+        : "The data service took too long to respond. Your saved data has not been removed. Please retry.");
     }
     throw error;
   } finally {
@@ -106,14 +107,28 @@ export async function apiGet<T>(
 }
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new ApiRequestError(await extractErrorMessage(res), res.status);
-  return res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60_000);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new ApiRequestError(await extractErrorMessage(res), res.status);
+    return await res.json();
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(path === "/internal/ops/research"
+        ? "The start request timed out. Check Recent Searches before trying again; it may already have started."
+        : "The request timed out. Check whether your change was saved before trying again.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /* ---------- Typed API functions ---------- */
@@ -283,6 +298,7 @@ export type ProviderServiceStatus = {
   provider: string;
   model: string | null;
   credential_status: "configured" | "not_configured" | "not_required";
+  credential_note?: string;
   state: "not_checked" | "healthy" | "attention" | "not_configured";
   message: string;
   next_step: string;

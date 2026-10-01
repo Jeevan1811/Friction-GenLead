@@ -198,7 +198,9 @@ export default function SettingsPage() {
                       : service.state === "not_configured"
                         ? "Not configured"
                         : "Not checked";
-                  const credentialLabel = service.credential_note || (service.credential_status === "configured"
+                  const credentialLabel = service.id === "jev"
+                    ? `${service.credential_status === "configured" ? "Website access configured" : "Website access not configured"}. Mapped places require no key.`
+                    : service.credential_note || (service.credential_status === "configured"
                     ? "Credential configured · value hidden"
                     : service.credential_status === "not_required"
                       ? "No provider credential required"

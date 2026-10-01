@@ -105,8 +105,8 @@ async def get_provider_status() -> dict:
                     "Firecrawl web search",
                     "ABR for eligible Queensland postcode searches",
                 ],
-                "credential_status": "configured" if getattr(jev.web_search, "api_key", "") else "not_configured",
-                "credential_note": "Mapped places need no key; additional Firecrawl website discovery requires its own access key.",
+                "credential_status": "configured" if getattr(jev.web_search, "api_key", "") else "not_required",
+                "credential_note": "Firecrawl website search uses configured access when available, otherwise limited keyless access. Mapped places need no key. Access mode is not a health check.",
                 **jev_status,
             },
         ]

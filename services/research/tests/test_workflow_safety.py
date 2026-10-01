@@ -28,10 +28,12 @@ def _app(*routers) -> FastAPI:
     return app
 
 
-def test_provider_status_shows_model_and_credential_state_without_exposing_secret(monkeypatch):
+@pytest.mark.parametrize("website_key, expected_mode", [("", "not_required"), ("test-access", "configured")])
+def test_provider_status_shows_model_and_credential_state_without_exposing_secret(monkeypatch, website_key, expected_mode):
     secret = "sk-this-must-never-reach-the-browser"
     monkeypatch.setattr(chat_router.llm, "api_key", secret)
     monkeypatch.setattr(chat_router.llm, "model", "meta-llama/llama-3.3-70b-instruct")
+    monkeypatch.setattr(operations.jev.web_search, "api_key", website_key)
 
     with TestClient(_app(operations.router)) as client:
         response = client.get("/internal/ops/provider-status")
@@ -41,7 +43,7 @@ def test_provider_status_shows_model_and_credential_state_without_exposing_secre
     assert services["chatbot"]["provider"] == "OpenRouter"
     assert services["chatbot"]["model"] == "meta-llama/llama-3.3-70b-instruct"
     assert services["chatbot"]["credential_status"] == "configured"
-    assert services["jev"]["credential_status"] in {"configured", "not_configured"}
+    assert services["jev"]["credential_status"] == expected_mode
     assert "Firecrawl" in services["jev"]["credential_note"]
     assert secret not in response.text
     assert "api_key" not in response.text

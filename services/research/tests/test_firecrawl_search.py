@@ -23,15 +23,37 @@ class _Geocoder:
         }
 
 
-def test_missing_access_key_never_sends_an_unauthenticated_request():
+def test_keyless_search_sends_no_bearer_header_and_returns_candidates():
+    requests = []
     async def run():
-        def unexpected_request(request):
-            pytest.fail("Missing credentials must not call the hosted provider")
-        async with httpx.AsyncClient(transport=httpx.MockTransport(unexpected_request)) as client:
+        def handler(request):
+            requests.append(request)
+            assert "authorization" not in request.headers
+            return httpx.Response(200, json={"success": True, "data": {"web": [
+                _hit("Northstar Mining", "https://northstar-mining.com.au/")
+            ]}})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client, api_key="", minimum_interval_seconds=0)
+            return await service.search("Gladstone, Queensland", "Mining")
+    results = asyncio.run(run())
+    assert len(requests) == 3
+    assert len(results) == 1
+
+
+def test_keyless_rate_limit_stops_without_retry_or_exposing_provider_body():
+    requests = []
+    async def run():
+        def handler(request):
+            requests.append(request)
+            return httpx.Response(429, text="private upstream detail")
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             service = FirecrawlSearchDiscovery(geocoder=_Geocoder(), client=client, api_key="")
             await service.search("Gladstone, Queensland", "Mining")
-    with pytest.raises(PublicSourceError, match="Website discovery is not configured"):
+    with pytest.raises(PublicSourceError, match="limiting requests") as error:
         asyncio.run(run())
+    assert len(requests) == 1
+    assert "429" not in str(error.value)
+    assert "private upstream" not in str(error.value)
 
 
 @pytest.mark.parametrize("url", ["https://supplier.com/catalog.PDF", "https://supplier.com/report.xlsx?download=1", "https://supplier.com/directory.doc"])

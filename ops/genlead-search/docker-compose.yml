@@ -9,6 +9,7 @@ services:
       SEARXNG_BASE_URL: "http://127.0.0.1:3128/"
     volumes:
       - /opt/frictiongenlead/search-runtime/searxng-settings.yml:/etc/searxng/settings.yml:ro
+    tmpfs:
       - /tmp:size=64m
       - /var/cache/searxng:size=128m
     cap_drop:

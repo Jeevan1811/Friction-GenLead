@@ -4,7 +4,7 @@ port = 3127
 
 [search]
 enabled = true
-searxng_url = "http://127.0.0.1:3128"
+search_backend_url = "http://127.0.0.1:3128"
 
 [auth]
 api_keys = ["__GENERATE_ON_VPS__"]

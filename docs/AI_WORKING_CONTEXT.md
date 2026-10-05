@@ -1,8 +1,16 @@
 # Friction GenLead AI Working Context
 
-Last updated: 2026-10-01 (Asia/Singapore)
+Last updated: 2026-10-05 (Asia/Singapore)
 
-## Current task - fixes-only overlay release
+## Current task - GenLead cloud self-hosted search backend
+
+- Truth: **DEPLOYED ON THE VPS; generic backend smoke tests passed; production prospect-to-Sheets workflow remains unverified.** Production app checkout is `/opt/frictiongenlead/app`, code release at `0153c53166b362c5a8a2d704b874e8405964fde8` (PRs #45–#49). Local deployment worktree: `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-searxng-cloud`.
+- Runtime: GenLead-only SearXNG container is healthy at loopback `127.0.0.1:3128`; fastCRW systemd service is enabled and healthy at `127.0.0.1:3127`. Only `frictiongenlead-api` was restarted and configured with `GENLEAD_WEB_SEARCH_PROVIDER=fastcrw`, loopback base URL, and protected token-file path; `pm2 save` persisted it. `frictiongenlead-web` and all unrelated containers/services were left alone.
+- Generic QA: SearXNG health returned `OK`; a generic SearXNG JSON search returned 10 results; a generic fastCRW Firecrawl-compatible request returned 3; GenLead's deployed adapter parsed 3 rows; API `/internal/health` returned HTTP 200. No candidate/company prospect search was run and no Google Sheet was read or written.
+- Limitations: the VPS's SearXNG default engines encountered blocks/rate limits; Bing was explicitly enabled because a direct generic Bing query returned results. Public engines can still throttle the VPS, and 100 companies per search remains best-effort—not guaranteed. Do not claim authenticated full search, contact discovery, or Sheets-write E2E is verified from these smoke tests.
+- Startup defects found and corrected in merged PRs: systemd binary path, fastCRW TOML path/key serialization/search-backend field, and SearXNG Bing engine override. Runtime token and SearXNG secret remain in protected VPS-only files; no app `.env` or other credential file was opened or changed.
+
+### Completed prior task: fixes-only overlay release
 
 ### Follow-up: large clusters and company labels (deployed; limited live smoke verified)
 

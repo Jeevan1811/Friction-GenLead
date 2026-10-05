@@ -99,7 +99,7 @@ def test_search_is_localized_bounded_authenticated_and_filters_low_signal_domain
         assert str(request.url) == "https://api.firecrawl.dev/v2/search"
         assert request.headers["authorization"] == "Bearer test-only"
         body = json.loads(request.content)
-        assert body["limit"] == 5
+        assert body["limit"] == 20
         assert body["sources"] == ["web"]
         assert body["safe"] is True
         assert body["location"] == "Gladstone, Queensland, Australia"

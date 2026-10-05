@@ -1,0 +1,15 @@
+use_default_settings: true
+
+general:
+  instance_name: "Friction GenLead Search"
+
+server:
+  secret_key: "__GENERATE_ON_VPS__"
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  formats:
+    - html
+    - json

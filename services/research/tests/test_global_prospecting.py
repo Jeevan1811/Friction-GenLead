@@ -135,9 +135,10 @@ def test_web_search_candidates_are_saved_without_fabricated_site_locations():
     class PublicWebSearch:
         last_warnings: list[str] = ["Web results are unverified candidates; review before use."]
 
-        async def search(self, location: str, industry: str | None = None):
+        async def search(self, location: str, industry: str | None = None, *, max_results=30):
             assert location == "Gladstone, Queensland, Australia"
             assert industry == "Heavy Industry"
+            assert max_results == 30
             return [candidate]
 
     class LiveSheets:
@@ -185,6 +186,130 @@ def test_web_search_candidates_are_saved_without_fabricated_site_locations():
     assert sheets.locations == []
 
 
+def test_selected_100_target_flows_through_web_discovery_and_saves_without_fake_map_sites():
+    candidates = [
+        {
+            "source": "FASTCRW_SEARCH",
+            "provider_id": f"fastcrw:buyer-{index}.com.au",
+            "name": f"Wacol Industrial Buyer {index}",
+            "website": f"https://buyer-{index}.com.au/",
+            "source_url": f"https://buyer-{index}.com.au/",
+            "source_provenance": {"provider": "fastCRW + SearXNG self-hosted search"},
+        }
+        for index in range(100)
+    ]
+
+    class PublicWebSearch:
+        last_warnings = []
+
+        async def search(self, location, industry=None, *, max_results=30):
+            assert location == "Gladstone, Queensland"
+            assert industry == "Valve-focused"
+            assert max_results == 100
+            return candidates
+
+    class FakeSheets:
+        is_live = True
+
+        def __init__(self):
+            self.companies = []
+            self.locations = []
+
+        async def read_companies(self):
+            return []
+
+        async def read_locations(self):
+            return []
+
+        async def read_rejected(self):
+            return []
+
+        def tab_read_error(self, _tab):
+            return None
+
+        async def upsert_company(self, row):
+            self.companies.append(row)
+            return SyncState.SYNCED
+
+        async def upsert_location(self, row):
+            self.locations.append(row)
+            return SyncState.SYNCED
+
+    sheets = FakeSheets()
+    job = ResearchJob(
+        job_id="fastcrw-100-depth-fixture",
+        postcode="",
+        location_query="Gladstone, Queensland",
+        industry="Valve-focused",
+        target_roles=[],
+        max_companies=100,
+        steps=[PipelineStep(name="discover")],
+    )
+    asyncio.run(Jev(sheets=sheets, web_search=PublicWebSearch())._step_discover_public_sources(job))
+
+    assert len(job.companies_found) == len(sheets.companies) == 100
+    assert not sheets.locations
+    assert all(row["source"] == "FASTCRW_SEARCH" for row in sheets.companies)
+    assert job.steps[0].result["requested_new_companies"] == 100
+    assert job.steps[0].result["new_company_shortfall"] == 0
+
+
+def test_search_shortfall_reports_filtered_duplicates_and_invalid_rows_separately():
+    class SparseWebSearch:
+        last_warnings = []
+
+        async def search(self, _location, _industry=None, *, max_results=30):
+            assert max_results == 100
+            return [
+                {"source": "FASTCRW_SEARCH", "provider_id": "fastcrw:fresh.example", "name": "Fresh Boiler Services"},
+                {"source": "FASTCRW_SEARCH", "provider_id": "fastcrw:fresh.example", "name": "Duplicate Result"},
+                {"source": "FASTCRW_SEARCH", "provider_id": "fastcrw:known.example", "name": "Known Industrial Co"},
+                {"source": "FASTCRW_SEARCH", "provider_id": "fastcrw:rejected.example", "name": "Rejected Valve Co"},
+                {"source": "FASTCRW_SEARCH", "provider_id": "fastcrw:invalid.example", "name": ""},
+            ]
+
+    class FakeSheets:
+        is_live = True
+
+        def __init__(self):
+            self.companies = []
+
+        async def read_companies(self):
+            return [{"company_id": "saved-known", "company_name": "Known Industrial Co"}]
+
+        async def read_locations(self):
+            return []
+
+        async def read_rejected(self):
+            return [{"entity_type": "COMPANY", "entity_name": "Rejected Valve Co", "original_data": "{}"}]
+
+        def tab_read_error(self, _tab):
+            return None
+
+        async def upsert_company(self, row):
+            self.companies.append(row)
+            return SyncState.SYNCED
+
+    job = ResearchJob(
+        job_id="fastcrw-shortfall-fixture",
+        postcode="",
+        location_query="Wacol, Queensland",
+        industry="Valve-focused",
+        target_roles=[],
+        max_companies=100,
+        steps=[PipelineStep(name="discover")],
+    )
+    sheets = FakeSheets()
+    asyncio.run(Jev(sheets=sheets, web_search=SparseWebSearch())._step_discover_public_sources(job))
+
+    assert len(sheets.companies) == len(job.companies_found) == 1
+    assert job.steps[0].result["requested_new_companies"] == 100
+    assert job.steps[0].result["new_company_shortfall"] == 99
+    assert job.steps[0].result["already_known_or_rejected_skipped"] == 3
+    assert job.steps[0].result["invalid_candidate_rows"] == 1
+    assert any("Found 1 of 100" in warning for warning in job.warnings)
+
+
 def test_web_search_failure_does_not_discard_overture_candidates():
     candidate = {
         "provider_id": "overture:place-123",
@@ -202,7 +327,7 @@ def test_web_search_failure_does_not_discard_overture_candidates():
     class FailedWebSearch:
         last_warnings: list[str] = []
 
-        async def search(self, _location: str, _industry: str | None = None):
+        async def search(self, _location: str, _industry: str | None = None, *, max_results=30):
             raise RuntimeError("web source unavailable")
 
     class LiveSheets:
@@ -270,7 +395,7 @@ def test_dense_overture_results_do_not_starve_web_results_under_the_30_company_c
     class PublicWebSearch:
         last_warnings: list[str] = []
 
-        async def search(self, _location: str, _industry: str | None = None):
+        async def search(self, _location: str, _industry: str | None = None, *, max_results=30):
             return web_candidates
 
     class LiveSheets:
@@ -310,7 +435,7 @@ def test_dense_overture_results_do_not_starve_web_results_under_the_30_company_c
     assert job.steps[0].status.value == "completed"
     assert len(job.companies_found) == 30
     assert sum(row["source"] == "FIRECRAWL_SEARCH" for row in job.companies_found) == 10
-    assert any("limited to 10" in warning for warning in job.warnings)
+    assert not any("limited to 10" in warning for warning in job.warnings)
 
 
 def test_research_results_endpoint_returns_candidate_rows_for_the_ui(monkeypatch):
@@ -545,7 +670,7 @@ def test_saved_area_matches_complete_even_when_every_public_provider_fails(caplo
     class FailedPublicSource:
         last_warnings: list[str] = []
 
-        async def search(self, _location: str, _industry: str | None = None):
+        async def search(self, _location: str, _industry: str | None = None, *, max_results=30):
             raise RuntimeError("synthetic public provider outage")
 
     class ReadOnlySheets:

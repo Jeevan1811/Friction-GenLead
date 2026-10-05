@@ -904,17 +904,15 @@ class Jev:
 
             if self.web_search is not None:
                 try:
-                    web_results = await self.web_search.search(location_query, job.industry)
+                    web_results = await self.web_search.search(
+                        location_query, job.industry, max_results=job.max_companies,
+                    )
                     job.warnings.extend(getattr(self.web_search, "last_warnings", []))
-                    if len(web_results) > 10:
-                        job.warnings.append(
-                            "Public web results are limited to 10 candidates per run so mapped and registry sources remain represented."
-                        )
                     successful_sources += 1
                 except Exception as exc:
                     issue = describe_provider_exception("jev", exc)
                     source_issues.append(issue)
-                    source_failures.append(("firecrawl", exc))
+                    source_failures.append((getattr(self.web_search, "provider_key", "firecrawl"), exc))
                     source_errors.append(
                         "Public web search failed; other successful sources were retained. "
                         f"{issue['message']} {issue['next_step']}"
@@ -1046,6 +1044,8 @@ class Jev:
             seen_abns: set[str] = set()
             seen_names: set[str] = set()
             seen_provider_ids: set[str] = set()
+            duplicate_or_rejected = 0
+            invalid_candidates = 0
             now = datetime.now(timezone.utc).isoformat()
             selected_limit = min(
                 MAX_RESEARCH_COMPANIES,
@@ -1065,14 +1065,19 @@ class Jev:
                 normalized = normalize_company_name(name)
                 provider_id = str(candidate.get("provider_id") or "").strip()
                 if not name or (source == "ABR" and not abn):
+                    invalid_candidates += 1
                     continue
                 if source != "ABR" and not provider_id:
+                    invalid_candidates += 1
                     continue
                 if source == "ABR" and str(candidate.get("status", "")).casefold() == "cancelled":
+                    invalid_candidates += 1
                     continue
                 if provider_id in seen_provider_ids or (abn and (abn in existing_abns or abn in rejected_abns or abn in seen_abns)):
+                    duplicate_or_rejected += 1
                     continue
                 if provider_id and (provider_id in existing_provider_ids or provider_id in rejected_provider_ids):
+                    duplicate_or_rejected += 1
                     continue
                 if normalized and (
                     normalized in rejected_names
@@ -1088,6 +1093,7 @@ class Jev:
                     )
                     existing_name_abn = _digits(same_name_row.get("abn")) if same_name_row else ""
                     if normalized in rejected_names or source != "ABR" or not existing_name_abn or existing_name_abn == abn:
+                        duplicate_or_rejected += 1
                         continue
                     candidate["source_quality_flags"] = "POSSIBLE_NAME_COLLISION; REVIEW_BEFORE_APPROVAL"
                     job.warnings.append(
@@ -1152,7 +1158,7 @@ class Jev:
                     candidate["source_quality_flags"] = candidate.get("source_quality_flags") or (
                         "OVERTURE_MAPS_CANDIDATE; INDUSTRY_CATEGORY_MATCH_NOT_VERIFIED; CONTACT_DETAILS_REQUIRE_REVIEW"
                     )
-                elif source == "FIRECRAWL_SEARCH":
+                elif source in {"FIRECRAWL_SEARCH", "FASTCRW_SEARCH"}:
                     candidate["business_phone"] = ""
                     candidate["business_email"] = ""
                     candidate["source_verification"] = (
@@ -1216,7 +1222,7 @@ class Jev:
                         job.warnings.append(f"Company {company['company_name']} was found but its Companies-tab write is pending.")
 
                     source = str(company.get("source", "")).upper()
-                    if source == "FIRECRAWL_SEARCH":
+                    if source in {"FIRECRAWL_SEARCH", "FASTCRW_SEARCH"}:
                         # Search-result pages do not contain a verified operating-site location.
                         # Persist the company candidate, but do not manufacture a map row or coordinates.
                         continue
@@ -1280,10 +1286,23 @@ class Jev:
                     job.result_rows_synced = False
                     job.warnings.append("Google Sheets is in mock mode; these research candidates are not durable across restarts.")
 
+            shortfall = max(0, selected_limit - len(discovered))
+            if shortfall:
+                job.warnings.append(
+                    f"Found {len(discovered)} of {selected_limit} requested new companies. "
+                    f"Filtered {duplicate_or_rejected} duplicates or rejected records and "
+                    f"{invalid_candidates} invalid candidates; the remaining yield depends on source coverage. "
+                    "Saved area matches are shown separately."
+                )
+
             step.result = {
                 "public_source_matches": len(job.companies_found),
                 "saved_area_matches": len(job.known_companies_found),
-                "already_known_or_rejected_skipped": max(0, len(raw_results) - len(job.companies_found)),
+                "already_known_or_rejected_skipped": duplicate_or_rejected,
+                "invalid_candidate_rows": invalid_candidates,
+                "requested_new_companies": selected_limit,
+                "new_company_shortfall": shortfall,
+                "candidate_rows_received": len(raw_results),
                 "industry_verified": 0,
                 "websites_available": sum(bool(company.get("website")) for company in discovered),
             }
@@ -1627,7 +1646,7 @@ def _blend_public_source_candidates(
     # Keep a small ABR lead-in for QLD postcodes, but don't let either the
     # registry or a dense map area consume every slot before web discovery.
     interleaved = abr_results[:8]
-    web_pool = web_results[:10]
+    web_pool = web_results
     web_index = 0
     for offset in range(0, len(mapped_results), 2):
         interleaved.extend(mapped_results[offset : offset + 2])

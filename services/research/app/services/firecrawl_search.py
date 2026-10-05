@@ -11,6 +11,7 @@ import asyncio
 import ipaddress
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -28,7 +29,9 @@ logger = logging.getLogger(__name__)
 SEARCH_URL = "https://api.firecrawl.dev/v2/search"
 USER_AGENT = "FrictionGenLead/1.0 (+https://friction.com.my)"
 MAX_SEARCHES = 3
-RESULTS_PER_SEARCH = 5
+MIN_RESULTS = 10
+MAX_RESULTS = 100
+DEFAULT_RESULTS = 30
 MAX_RESPONSE_BYTES = 1_000_000
 SEARCH_CACHE_SECONDS = 6 * 60 * 60
 MAX_CACHE_ITEMS = 128
@@ -196,6 +199,15 @@ def _candidate_name(title: object) -> str:
 class FirecrawlSearchDiscovery:
     """Run a small localized public-web search and retain only candidate evidence."""
 
+    provider_name = "Firecrawl web search"
+    provider_key = "firecrawl"
+    source = "FIRECRAWL_SEARCH"
+    search_url = SEARCH_URL
+    credential_note = (
+        "Firecrawl website search uses configured access when available, otherwise limited keyless access. "
+        "Mapped places need no key. Access mode is not a health check."
+    )
+
     def __init__(
         self,
         *,
@@ -215,10 +227,14 @@ class FirecrawlSearchDiscovery:
         self._lock = asyncio.Lock()
         self._last_request_at = 0.0
 
-    async def search(self, location: str, industry: str | None = None) -> list[dict[str, Any]]:
+    async def search(
+        self, location: str, industry: str | None = None, *, max_results: int = DEFAULT_RESULTS,
+    ) -> list[dict[str, Any]]:
+        if type(max_results) is not int or not MIN_RESULTS <= max_results <= MAX_RESULTS:
+            raise ValueError(f"Company target must be between {MIN_RESULTS} and {MAX_RESULTS}.")
         place = _input_text(location, label="location", maximum=160)
         sector = _input_text(industry, label="industry", maximum=80) if industry else ""
-        cache_key = f"{place.casefold()}|{sector.casefold()}"
+        cache_key = f"{place.casefold()}|{sector.casefold()}|{max_results}"
         cached = self._search_cache.get(cache_key)
         if cached and cached[0] > time.monotonic():
             self.last_warnings = list(cached[2])
@@ -251,6 +267,9 @@ class FirecrawlSearchDiscovery:
             seen_hosts: set[str] = set()
             completed_queries = 0
             failed_request: PublicSourceError | None = None
+            # Overfetch across no more than three bounded requests so filtering
+            # and duplicate hosts do not silently cap a 100-company request.
+            request_limit = min(MAX_RESULTS, math.ceil(2 * max_results / MAX_SEARCHES))
 
             async with self._client_context() as client:
                 for query in queries[:MAX_SEARCHES]:
@@ -260,12 +279,13 @@ class FirecrawlSearchDiscovery:
                             query=query,
                             location=resolved_location,
                             country_code=country_code,
+                            limit=request_limit,
                         )
                     except PublicSourceError as exc:
                         failed_request = exc
                         break
                     completed_queries += 1
-                    for result in response_rows[:RESULTS_PER_SEARCH]:
+                    for result in response_rows[:request_limit]:
                         candidate = self._map_result(
                             result,
                             query=query,
@@ -280,6 +300,10 @@ class FirecrawlSearchDiscovery:
                             continue
                         seen_hosts.add(candidate["provider_id"])
                         candidates.append(candidate)
+                        if len(candidates) >= max_results:
+                            break
+                    if len(candidates) >= max_results:
+                        break
 
             if failed_request and not completed_queries:
                 raise failed_request
@@ -305,6 +329,7 @@ class FirecrawlSearchDiscovery:
         query: str,
         location: str,
         country_code: str,
+        limit: int,
     ) -> list[dict[str, Any]]:
         delay = self.minimum_interval_seconds - (time.monotonic() - self._last_request_at)
         if delay > 0:
@@ -312,43 +337,49 @@ class FirecrawlSearchDiscovery:
         self._last_request_at = time.monotonic()
         payload = {
             "query": query,
-            "limit": RESULTS_PER_SEARCH,
+            "limit": limit,
             "sources": ["web"],
             "location": location,
             "country": country_code,
             "safe": True,
         }
         try:
-            async with client.stream("POST", SEARCH_URL, json=payload,
-                                     headers={"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}) as response:
+            async with client.stream("POST", self.search_url, json=payload,
+                                     headers=self._authorization_headers()) as response:
                 if response.status_code < 200 or response.status_code >= 300:
                     raise PublicSourceError(
-                        provider_http_error_message("jev", response.status_code)
+                        self._http_error_message(response.status_code)
                     )
                 body = bytearray()
                 async for chunk in response.aiter_bytes():
                     if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
-                        raise PublicSourceError("Firecrawl web search response exceeded the safe size limit.")
+                        raise PublicSourceError(f"{self.provider_name} response exceeded the safe size limit.")
                     body.extend(chunk)
         except PublicSourceError:
             raise
         except httpx.HTTPError as exc:
-            logger.warning("Firecrawl web search request failed: %s", type(exc).__name__)
-            raise PublicSourceError("Firecrawl web search is temporarily unavailable.") from exc
+            logger.warning("%s request failed: %s", self.provider_name, type(exc).__name__)
+            raise PublicSourceError(f"{self.provider_name} is temporarily unavailable.") from exc
 
         try:
             payload_data = json.loads(body)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise PublicSourceError("Firecrawl web search returned invalid JSON.") from exc
+            raise PublicSourceError(f"{self.provider_name} returned invalid JSON.") from exc
         if not isinstance(payload_data, dict) or payload_data.get("success") is False:
-            raise PublicSourceError("Firecrawl web search did not complete successfully.")
+            raise PublicSourceError(f"{self.provider_name} did not complete successfully.")
         data = payload_data.get("data")
         if not isinstance(data, dict):
-            raise PublicSourceError("Firecrawl web search returned an invalid result set.")
+            raise PublicSourceError(f"{self.provider_name} returned an invalid result set.")
         rows = data.get("web", [])
         if not isinstance(rows, list):
-            raise PublicSourceError("Firecrawl web search returned an invalid result list.")
-        return [row for row in rows[:RESULTS_PER_SEARCH] if isinstance(row, dict)]
+            raise PublicSourceError(f"{self.provider_name} returned an invalid result list.")
+        return [row for row in rows[:limit] if isinstance(row, dict)]
+
+    def _http_error_message(self, status_code: int) -> str:
+        return provider_http_error_message("jev", status_code)
+
+    def _authorization_headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
 
     def _map_result(
         self,
@@ -369,12 +400,12 @@ class FirecrawlSearchDiscovery:
         if not name or not parsed:
             return None
         host, website = parsed
-        provider_id = f"firecrawl:{host}"
+        provider_id = f"{self.provider_key}:{host}"
         source_url = str(result.get("url") or metadata.get("url") or "")[:2048]
         return {
             "provider_id": provider_id,
             "name": name,
-            "source": "FIRECRAWL_SEARCH",
+            "source": self.source,
             "website": website,
             "source_url": source_url,
             "country": country,
@@ -385,7 +416,7 @@ class FirecrawlSearchDiscovery:
                 "WEBSITE_OWNERSHIP_UNVERIFIED; OPERATING_SITE_UNVERIFIED"
             ),
             "source_provenance": {
-                "provider": "Firecrawl web search",
+                "provider": self.provider_name,
                 "provider_id": provider_id,
                 "result_title": str(title or "")[:240],
                 "record_url": source_url,

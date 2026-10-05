@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field, field_validator
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.services.auth import require_auth
-from app.services.firecrawl_search import FirecrawlSearchDiscovery
+from app.services.fastcrw_search import create_web_search
 from app.services.jev import Jev
 from app.services.osm_discovery import OpenStreetMapDiscovery
 from app.services.overture_discovery import OverturePlacesDiscovery
@@ -19,7 +19,7 @@ geocoder = OpenStreetMapDiscovery()
 jev = Jev(
     sheets=sheets_adapter,
     places=OverturePlacesDiscovery(geocoder=geocoder),
-    web_search=FirecrawlSearchDiscovery(geocoder=geocoder),
+    web_search=create_web_search(geocoder=geocoder),
 )
 
 
@@ -102,11 +102,11 @@ async def get_provider_status() -> dict:
                 "sources": [
                     "Overture Maps",
                     "OpenStreetMap",
-                    "Firecrawl web search",
+                    getattr(jev.web_search, "provider_name", "Public web search"),
                     "ABR for eligible Queensland postcode searches",
                 ],
                 "credential_status": "configured" if getattr(jev.web_search, "api_key", "") else "not_required",
-                "credential_note": "Firecrawl website search uses configured access when available, otherwise limited keyless access. Mapped places need no key. Access mode is not a health check.",
+                "credential_note": getattr(jev.web_search, "credential_note", "Configuration is not a health check."),
                 **jev_status,
             },
         ]

@@ -90,6 +90,12 @@ def describe_provider_exception(
         return describe_provider_failure(service_id, status_code, partial=partial)
 
     text = str(exc).casefold()
+    if "fastcrw local search could not complete" in text:
+        return {
+            "state": "attention",
+            "message": "Self-hosted web search is unavailable; mapped-place and saved-workbook results remain available.",
+            "next_step": "The account administrator should check the local fastCRW and SearXNG services and JSON search configuration.",
+        }
     if "website discovery is not configured" in text:
         return {
             "state": "attention",

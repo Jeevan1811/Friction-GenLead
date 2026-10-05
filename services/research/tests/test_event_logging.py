@@ -97,7 +97,7 @@ def test_partial_provider_failure_is_marked_warning_and_counts_successful_source
             raise RuntimeError("HTTP 429 for private@example.com secret=never-log")
 
     class EmptyWebSearch:
-        async def search(self, _location, _industry):
+        async def search(self, _location, _industry, *, max_results=30):
             return []
 
     job = ResearchJob(
@@ -138,7 +138,7 @@ def test_total_discovery_failure_marks_each_source_as_error_and_records_exhausti
             raise RuntimeError("HTTP 429 for private@example.com secret=never-log")
 
     class UnavailableWebSearch:
-        async def search(self, _location, _industry):
+        async def search(self, _location, _industry, *, max_results=30):
             raise RuntimeError("HTTP 503 for private@example.com secret=never-log")
 
     job = ResearchJob(

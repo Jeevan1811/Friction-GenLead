@@ -1,0 +1,31 @@
+[Unit]
+Description=Friction GenLead local fastCRW search adapter
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=frictiongenlead
+Group=frictiongenlead
+WorkingDirectory=/opt/frictiongenlead/search-runtime/fastcrw
+Environment=CRW_CONFIG=genlead
+Environment=CRW_USER_CONFIG_DIR=/opt/frictiongenlead/search-runtime/fastcrw/disabled-user-config
+Environment=RUST_LOG=warn
+ExecStart=/opt/frictiongenlead/search-runtime/fastcrw/crw-server
+Restart=on-failure
+RestartSec=4
+TimeoutStopSec=20
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryMax=512M
+CPUQuota=100%
+
+[Install]
+WantedBy=multi-user.target

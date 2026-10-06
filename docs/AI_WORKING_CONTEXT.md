@@ -1,6 +1,16 @@
 # Friction GenLead AI Working Context
 
-Last updated: 2026-10-05 (Asia/Singapore)
+Last updated: 2026-10-06 (Asia/Singapore)
+
+## Current task - Accepted contact status filter
+
+- Truth: **SOURCE-ONLY; BUILD-PASSED; UNIT-TESTED; LOCAL PLAYWRIGHT VERIFIED; NOT DEPLOYED.** Worktree `C:\Users\Asus\Documents\Codex\2026-09-23\for-x20\work\genlead-contact-status-filter`, branch `codex/genlead-contact-status-filter`, starting commit `7c42ff1`.
+- Added a Contacts-page status filter with an `Accepted` option mapped to the canonical `APPROVED` value. Existing search and role-priority filters compose with it; changing any filter resets pagination. Other contact statuses remain filterable.
+- Updated the Contacts stop in the Settings-replayable dashboard tour: it explains that website-found people need review, approvals happen in company details, the app reports Sheet sync status, and Accepted finds approved contacts.
+- The approve-and-save workflow is pre-existing and present in deployed commit `0153c53`: explicit Approve calls the contact decision route, upserts the contact/status into the live Google Sheet `Contacts` tab, and reports `SYNCED` or `PENDING`. This change does not alter that write path or the workbook.
+- The UI follows the separate status-filter pattern in the open-source TanStack/shadcn table examples without adding a table dependency. Test-only fixtures use synthetic `.test` contacts.
+- Verification: web unit tests **36 passed**, TypeScript check passed, optimized Next.js build passed (existing `jose` Edge-runtime warnings remain), and the full local Playwright suite **27 passed**. Synthetic browser checks verify the Contacts tour explains Accepted and Sheet sync, plus Accepted→`APPROVED`, page reset, status+priority+search composition, and empty state. The Accepted-results table and tour popover were rendered and visually inspected. The E2E suite used test-only auth and intercepted `/internal/*` with synthetic data; no backend write was made. `npm ci` reported one high-severity lockfile advisory; no dependency was changed or auto-fixed.
+- No production deployment, Google Sheet write, production search, OTP, provider call, or credential change occurred. This verifies the local UI filter, not live Sheet parity or the separate production approval-write path. Deploy only after a separate explicit request.
 
 ## Current task - GenLead cloud self-hosted search backend
 

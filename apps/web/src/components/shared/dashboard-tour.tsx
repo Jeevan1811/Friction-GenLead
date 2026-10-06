@@ -53,7 +53,7 @@ export const DASHBOARD_TOUR_STEPS: readonly DashboardTourStep[] = [
     path: "/contacts",
     target: '[data-tour="contacts-overview"]',
     title: "Find the right person",
-    description: "Review people, roles and contact details here. Website research can find explicitly published people; matches remain unverified until reviewed.",
+    description: "Website-found people need review. Approve a contact in company details; check its Sheet sync status. Use Accepted here to find approved contacts.",
     side: "bottom",
   },
   {
